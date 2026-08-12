@@ -122,6 +122,23 @@ def main() -> None:
         train = to_records(train_rows, system, mode)
         val = to_records(val_rows, system, mode)
 
+        # An empty val split is not a small problem, it is a broken artefact.
+        # stratified_split gives a topic bucket zero validation rows until it
+        # holds 10, so a persona that is still generating produces a 0-byte
+        # *_val.jsonl. Upload that and the Kaggle run trains for ~15 minutes,
+        # reaches its first eval step, and dies there — the training args set
+        # evaluation_strategy="steps" with load_best_model_at_end=True and
+        # metric_for_best_model="eval_loss", none of which survive an empty
+        # eval set. Refuse to write the file rather than hand a GPU run a
+        # landmine. Observed 2026-08-12 with chanakya at 49/600.
+        if train and not val:
+            print(
+                f"⏭  {mode:<11} train {len(train):>5} | val    0 — SKIPPED, no "
+                f"validation rows yet (needs >=10 pairs in a topic). Re-run "
+                f"once {mode} finishes generating."
+            )
+            continue
+
         write_jsonl(SPLITS_DIR / f"{mode}_train.jsonl", train)
         write_jsonl(SPLITS_DIR / f"{mode}_val.jsonl", val)
 
