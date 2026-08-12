@@ -1,7 +1,20 @@
 # Tomorrow — exact steps
 
-State as of the end of the 2026-08-12 session. Read the **Reality check** section
-before planning your day; the timeline is not what it looked like last night.
+**Generation is DONE. All four datasets are on the Hub. Go to Kaggle.**
+
+Finished 03:02 on 2026-08-13. The watcher preprocessed, gated and published
+unattended, exactly as designed.
+
+| persona | pairs | train / val | verdict |
+|---|---:|---:|---|
+| founder | 1000/1000 | 900 / 100 | **ok_to_train** |
+| chanakya | 600/600 | 540 / 60 | **ok_to_train** |
+| gita | 600/600 | 540 / 60 | **ok_to_train** |
+| reflection | 1000/1000 | 900 / 100 | **ok_to_train** |
+
+2,880 train / 320 val, longest sequence ~1,101 tokens against a 2,048 ceiling.
+`marker=1.0` and `unique=True` on all four. Live at
+`huggingface.co/datasets/amijackofalltrades/eka-datasets` (private).
 
 ---
 
@@ -9,97 +22,72 @@ before planning your day; the timeline is not what it looked like last night.
 
 ```bash
 cd ~/eka
-bash scripts/morning_checklist.sh          # what finished, what's blocked
+python scripts/preflight_kaggle.py --hub    # expect: 4/4 ready, exit 0
 ```
 
-**Read section 2 of that output before you type anything else.** The queue, the
-watcher, and the backend were all left running overnight. If it says `queue
-RUNNING`, do *not* start another — two queues share provider quotas and will
-429 each other. Only if it says `stopped`:
+That was green at 03:03. If it still is, **start Kaggle session 1 (founder)** —
+jump to step 4. Nothing else needs doing first.
+
+Only if something looks wrong:
 
 ```bash
-python ml/scripts/run_queue.py --all       # resume generation (resume-safe)
-python scripts/watch_and_publish.py        # waits, then preprocess + upload
+bash scripts/morning_checklist.sh           # full state, no API calls
 ```
 
-Most likely branch: generation finished overnight and the watcher already
-published to the Hub. Then you go straight to Kaggle — step 4.
+Read section 2 before starting anything: if it says `queue RUNNING`, do *not*
+start another — two queues share provider quotas and will 429 each other.
 
 ---
 
-## Reality check — read this first
+## How it finished, in case you need to do this again
 
-**The 23:00 update supersedes everything written earlier tonight. Generation is
-now roughly 1.5–2 hours from done, not 1–3 days.** The four-Mistral-key
-round-robin changed the picture completely.
+Generation took ~4 hours for 3,200 pairs, not the 1–3 days this file predicted
+at 22:00. Four things mattered, in rough order of impact:
 
-Measured at 23:00 on 2026-08-12, two independent ways that agree:
+**Four Mistral keys round-robining.** This was the single biggest change.
+Measured rates: founder 26 pairs/min, chanakya 13, reflection 31. Rate is
+**per-persona, not global** — it tracks gate acceptance (founder 71%, chanakya
+51%), so do not extrapolate one persona's number to the rest. That mistake
+produced two wrong ETAs tonight.
 
-| method | window | rate |
-|---|---|---|
-| direct sample of `founder_dataset.json` | 5.8 min | **26.4 pairs/min** |
-| `watcher.log` 2-min series, steady state | 6 min | **27.1 pairs/min** |
+**A trailing comma was discarding ~40% of all calls.** Replies ended
+`...right now?", } ]`, which is invalid strict JSON, so `json.loads` rejected
+the whole array and the balanced-object fallback failed identically. One stray
+comma threw away all five pairs in a call. Fixed in `extract_pairs`, and the
+effect was immediate: chanakya's last 8 and gita's last 14 — the hardest pairs
+in the run — closed within two minutes of the fix going live, after hours of
+not closing.
 
-That is **~1,600 pairs/hr**, against the **76–216 pairs/hr** this file claimed an
-hour earlier. The old number was measured when Mistral was a single key and the
-only live provider. Do not plan against the old figure.
+**Every persona finishes short on its first pass.** ~12% attrition, because a
+generator plans enough batches to cover the gap once and has nothing left when
+the gates take their share. The queue now sweeps short personas repeatedly
+until the gap stops closing.
 
-State at 02:11:
+**Reflection was the fastest, not the slowest.** Its LLM judge runs on an 8B
+model, batched, on a separate provider pool with its own rate limiter — the
+design deliberately keeps it off the critical path, and it works.
 
-| persona | on disk | target | verdict |
-|---|---:|---:|---|
-| founder | **1000** | 1000 | **ok_to_train** |
-| chanakya | 583 | 600 | 17 short — for the top-up sweep |
-| gita | 586 | 600 | 14 short — for the top-up sweep |
-| reflection | 0 | 1000 | last, and the slow one |
-
-Both chanakya and gita finished short on their first pass, which is the
-expected attrition described under "What broke" item 4, not a fault. The
-sweeps close those gaps after reflection, when they are cheap rather than
-blocking the personas behind them.
-
-**Rate is per-persona, and founder was the fast one.** Measured over a clean
-4-minute window at 00:03, chanakya runs **13.2 pairs/min** against founder's
-26. Nothing is wrong: chanakya's gates accept 51% of generated pairs where
-founder's accept 71%, so it burns roughly twice the calls per kept pair. That
-is the gate working, not a fault.
-
-~2,060 pairs remain → **~2.6 h**, projecting a finish around **02:45**. Treat
-that as a floor: reflection pays an LLM judge call per surviving pair and will
-be slower than chanakya, so 3–4 h is the honest range. Queue and watcher are
-both running, so this should finish and publish unattended overnight.
-
-Do not re-derive an ETA from founder's 26/min — that number does not
-generalise across personas.
-
-**Three bugs stopped the queue tonight before any of this worked.** All three
-are fixed and covered by tests; they are described under "What broke" below.
-The short version: the queue stopped twice claiming quota exhaustion while the
-Mistral keys were healthy, and neither stop was quota.
-
-**Why it got fast:** four Mistral keys now round-robin, and Groq and OpenRouter
-came back. Confirmed 8 distinct providers across 8 consecutive picks.
+**Provider reality as of tonight:**
 
 | provider | status | real daily ceiling |
 |---|---|---|
 | mistral ×4 keys | **working** | meters per MONTH (~1B tokens) — effectively unlimited |
-| groq | back | 100,000 tokens/day (~133 pairs) |
-| openrouter | back | opaque; ~112 pairs before it stopped last time |
-| google | out | **20 requests/day** (~100 pairs) — requests bind, not tokens |
+| groq | per-model limits | 70B walls early; **8B still answers**, which is what keeps the judge alive |
+| openrouter | walls early | opaque; ~112 pairs before it stopped |
+| google | out | **20 requests/day** — requests bind, not tokens |
 | github | **retired** | HTTP 410 `github_models_retirement_brownout` — gone, not throttled |
 
-**On the paid shortcut:** earlier drafts of this file recommended spending ~$4.50
-on the Anthropic Batches API to finish the remaining pairs. At 1,600 pairs/hr
-that is no longer worth doing — the free rotation finishes tonight. Keep it in
-your pocket only if the Mistral keys wall unexpectedly.
+The Anthropic Batches API shortcut earlier drafts recommended is moot — the
+free rotation finished the job in one night.
 
 ---
 
 ## What broke tonight, and what to watch for
 
-Three separate faults, all of which presented identically — "out of quota" —
-and none of which were quota. Worth knowing because the symptom is misleading.
-A fourth item is a hardening change rather than a fault found.
+Five items. The first three presented identically — "out of quota" — and none
+of them were quota, which is the part worth remembering: the symptom pointed
+away from the cause every time. Item 4 is a hardening change, and item 5 was
+the single biggest throughput win of the night.
 
 **1. A 2-second throttle read as a daily wall.** `complete()` bounds each call
 at `max_rotations` attempts. Six workers against four keys burst past the
@@ -144,7 +132,30 @@ sized on founder's 1-pair case before chanakya had finished. That gate would
 have skipped every persona it was written to rescue.
 Covered by `tests/test_queue_sweep.py`.
 
-Run all four plus the E2E suite (the first four are fast and need no network;
+**5. A trailing comma was discarding ~40% of all generation calls.** 184
+unparseable replies against ~256 successful batches. `extract_pairs` already
+salvaged fenced code, whole arrays and individual balanced objects, and these
+defeated all three — because every one of them ended
+`...right now?", } ]`. A trailing comma is invalid strict JSON, so
+`json.loads` rejected the entire array and the balanced-object fallback
+re-parsed the same text and failed identically. One stray comma threw away all
+five pairs in a call.
+
+Nothing was truncated: the failures ran 1,900–5,800 chars and closed cleanly
+with `]` and a fence. The model simply writes JSON5-ish output.
+
+It was invisible until the unparseable-reply log started printing both ends of
+the failing text — before that, a trailing comma, a chatty preamble and a
+refusal were indistinguishable. The repair is string-aware rather than a
+regex, since these are long responses full of commas.
+Covered by `tests/test_extract_pairs.py`.
+
+The effect was immediate and is the clearest evidence it was the real cause:
+chanakya's last 8 pairs and gita's last 14 — the hardest draws in the run,
+stuck for hours against saturated topics — closed within two minutes of the
+fix going live.
+
+Run all five plus the E2E suite (the first five are fast and need no network;
 E2E needs the backend up and takes ~70s):
 
 ```bash
@@ -152,17 +163,10 @@ python tests/test_throttle_waves.py
 python tests/test_queue_outcome.py
 python tests/test_queue_detection.py
 python tests/test_queue_sweep.py
+python tests/test_extract_pairs.py
 EKA_BASE_URL=http://127.0.0.1:8091 python tests/test_e2e.py
 ```
 
-**Known but not chased: ~40% of generation calls fail to parse.** 184
-unparseable replies against ~256 successful batches. `extract_pairs` already
-salvages fenced code, whole arrays and individual balanced objects, so these
-defeated all three. One reproduction returned a clean 5/5 at 2,582 tokens
-against a 3,800 ceiling, so it is intermittent and not simple truncation. The
-log line now reports length, a truncation flag and both ends of the reply, so
-the next run diagnoses itself. Worth fixing only if there is more data to
-generate — it costs throughput, not quality.
 
 **The last pair of a persona is a genuinely hard draw — this is not a bug.**
 founder sat at 999/1000 across several runs. 14 of its 15 topics were exactly
@@ -203,7 +207,10 @@ Nothing below needs work tomorrow. Verified this session, not assumed:
 
 ## Step by step
 
-### 1. Check what happened overnight
+**Steps 1–3 already ran and succeeded overnight. They are kept for the day you
+need to generate data again — skip to step 4.**
+
+### 1. ~~Check what happened overnight~~ (done 03:02)
 
 ```bash
 bash scripts/morning_checklist.sh
@@ -213,7 +220,7 @@ Prints dataset counts, provider quota state, whether anything is still running,
 and each persona's quality verdict. Start here — it tells you which of the
 branches below you're in.
 
-### 2. Resume generation
+### 2. ~~Resume generation~~ (done — all four at target)
 
 ```bash
 python ml/scripts/run_queue.py --all
@@ -227,7 +234,7 @@ times.
 It stops cleanly when every provider is walled and tells you so. That is the
 expected ending, not a failure.
 
-### 3. Watch for completion, then publish
+### 3. ~~Watch for completion, then publish~~ (done — published 03:02)
 
 ```bash
 python scripts/watch_and_publish.py
@@ -247,7 +254,7 @@ To publish at 90% rather than waiting for the last few pairs:
 python scripts/watch_and_publish.py --min-frac 0.9
 ```
 
-### 4. Kaggle training
+### 4. Kaggle training  ← **START HERE**
 
 Only after step 3 uploads successfully. **Run the pre-flight first — one
 second, and it is the difference between finding a problem now and finding it
