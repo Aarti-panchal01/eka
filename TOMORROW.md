@@ -44,14 +44,19 @@ That is **~1,600 pairs/hr**, against the **76–216 pairs/hr** this file claimed
 hour earlier. The old number was measured when Mistral was a single key and the
 only live provider. Do not plan against the old figure.
 
-State at 00:07:
+State at 02:11:
 
 | persona | on disk | target | verdict |
 |---|---:|---:|---|
 | founder | **1000** | 1000 | **ok_to_train** |
-| chanakya | 137 | 600 | generating |
-| gita | 0 | 600 | queued |
-| reflection | 0 | 1000 | queued |
+| chanakya | 583 | 600 | 17 short — for the top-up sweep |
+| gita | 586 | 600 | 14 short — for the top-up sweep |
+| reflection | 0 | 1000 | last, and the slow one |
+
+Both chanakya and gita finished short on their first pass, which is the
+expected attrition described under "What broke" item 4, not a fault. The
+sweeps close those gaps after reflection, when they are cheap rather than
+blocking the personas behind them.
 
 **Rate is per-persona, and founder was the fast one.** Measured over a clean
 4-minute window at 00:03, chanakya runs **13.2 pairs/min** against founder's
@@ -118,11 +123,25 @@ any `python.exe` existed; the watcher is one, so it always matched itself. The
 watcher polled on for 40 minutes reporting nothing wrong.
 Covered by `tests/test_queue_detection.py`.
 
-**4. A near-miss would have blocked publishing overnight.** Not a fault found
-tonight so much as one built out: any persona can end a pair or two short for
-the reason described below, and the watcher will not publish a persona that is
-not `ok_to_train`. The queue now retries a persona within 10 pairs of target,
-once, suppressed entirely if anything stopped on quota.
+**4. Every persona finishes short, and that would have blocked publishing.**
+Not a fault in the code so much as a fact about the generators: they plan
+enough batches to cover the gap once, and have no budget left when the gates
+take their share. chanakya finished **529/600** with a 0.42 rejection rate and
+only 0.34 of those recovered by regeneration — roughly 12% attrition — while
+its report was otherwise spotless (marker 1.0, zero near duplicates, 99.6%
+ends-with-question). founder finished 999/1000. Any shortfall makes the verdict
+`needs_review`, and the watcher will not publish a persona that is not
+`ok_to_train`, so all three would have sat on disk until morning.
+
+The queue now sweeps any short persona, repeatedly, while passes are still
+closing the gap — bounded at three, exiting the moment a pass gains nothing,
+and suppressed entirely by a quota or error stop. A fresh run regenerates the
+remaining gap from scratch, which is how founder went 999 → 1000 on one extra
+call and chanakya went 529 → 583 on one sweep.
+
+The first version of this only retried personas within 10 pairs of target,
+sized on founder's 1-pair case before chanakya had finished. That gate would
+have skipped every persona it was written to rescue.
 Covered by `tests/test_queue_sweep.py`.
 
 Run all four plus the E2E suite (the first four are fast and need no network;
@@ -318,17 +337,39 @@ python scripts/build_kaggle_notebooks.py --check   # fails if a notebook is stal
    broadest one), plus the Groq, SambaNova, OpenRouter, Google, and Mistral keys.
    The HF token was already rotated once. Rotate the rest when convenient.
 
-4. **The advice judge is a filter, not a proof.** `advice_regex_hit_rate: 0.0`
+4. **The advice judge is down to ONE live provider.** Probed at 01:47, before
+   reflection started, because reflection is the only persona that pays a judge
+   call per surviving pair and a dead judge there costs an hour to discover.
+
+   Result: the judge works — it returned the right verdicts on an
+   advice-giving and a reflective sample. But of its four configured
+   providers only two have keys, and one of those is now gone:
+
+   | judge provider | state |
+   |---|---|
+   | `groq-8b` | **live** — and answering while Groq's 70B generation model is daily-walled, because Groq meters per model |
+   | `sambanova-8b` | **HTTP 410 — `Meta-Llama-3.1-8B-Instruct` is deprecated on SambaNova Cloud** |
+   | `cerebras-8b` | no `CEREBRAS_API_KEY` |
+   | `together-8b` | no `TOGETHER_API_KEY` |
+
+   Fine for tonight: Groq's 8B allows ~14,400 req/day against reflection's
+   ~1,000. But there is no fallback left, so if Groq's 8B walls mid-run the
+   gate is lost. To restore redundancy, point `SAMBANOVA_JUDGE_MODEL_ID` at a
+   model SambaNova still serves, or add `CEREBRAS_API_KEY`. Do not simply
+   reuse the Mistral generation keys — the judge pool is separate on purpose
+   so judging cannot eat the generation model's per-minute budget.
+
+5. **The advice judge is a filter, not a proof.** `advice_regex_hit_rate: 0.0`
    means "no listed phrase appeared" — not "no advice present". The LLM judge
    catches 9/10 on adversarial phrasing; the last 10% needs a stronger judge
    model than 8B. Relevant only to reflection.
 
-5. **The dataset has three teachers**, not one: Llama 3.3 70B (Groq), Nemotron 3
+6. **The dataset has three teachers**, not one: Llama 3.3 70B (Groq), Nemotron 3
    Ultra (OpenRouter), Gemini 2.5 Flash (Google), and now Mistral Large. Every
    pair carries a `provider` field, so a single-teacher subset stays recoverable
    by filtering if the fine-tune shows voice inconsistency.
 
-6. **Nemotron's output length is unstable.** Two identical-prompt batches gave
+7. **Nemotron's output length is unstable.** Two identical-prompt batches gave
    5/5 (user 142–155w) and 0/5 (user 76–95w). The gates catch it; it just costs
    throughput.
 
