@@ -44,18 +44,23 @@ That is **~1,600 pairs/hr**, against the **76–216 pairs/hr** this file claimed
 hour earlier. The old number was measured when Mistral was a single key and the
 only live provider. Do not plan against the old figure.
 
-Live state at 23:02 (it moves ~26 pairs every minute, so re-read it):
+State at 23:57:
 
-| persona | on disk | target |
-|---|---:|---:|
-| founder | ~590 | 1000 |
-| chanakya | 0 | 600 |
-| gita | 0 | 600 |
-| reflection | 0 | 1000 |
+| persona | on disk | target | verdict |
+|---|---:|---:|---|
+| founder | **1000** | 1000 | **ok_to_train** |
+| chanakya | ~25 | 600 | generating |
+| gita | 0 | 600 | queued |
+| reflection | 0 | 1000 | queued |
 
-~2,600 pairs remain → **~1.6 h** at the measured rate. The queue and the watcher
-are both already running, so if they survive the night this is finished before
-you wake up and the watcher will have published it unattended.
+~2,175 pairs remain → **~1.4 h** at the measured rate. Queue and watcher are
+both running, so if they survive the night this finishes before you wake and
+the watcher publishes it unattended.
+
+**Three bugs stopped the queue tonight before any of this worked.** All three
+are fixed and covered by tests; they are described under "What broke" below.
+The short version: the queue stopped twice claiming quota exhaustion while the
+Mistral keys were healthy, and neither stop was quota.
 
 **Why it got fast:** four Mistral keys now round-robin, and Groq and OpenRouter
 came back. Confirmed 8 distinct providers across 8 consecutive picks.
@@ -75,6 +80,59 @@ your pocket only if the Mistral keys wall unexpectedly.
 
 ---
 
+## What broke tonight, and what to watch for
+
+Three separate faults, all of which presented identically — "out of quota" —
+and none of which were quota. Worth knowing because the symptom is misleading.
+
+**1. A 2-second throttle read as a daily wall.** `complete()` bounds each call
+at `max_rotations` attempts. Six workers against four keys burst past the
+per-key rate, and rotating costs no wall time, so the budget drained in
+seconds and returned the same "nothing available" signal a real daily wall
+returns. The caller turns that into a fatal stop. Killed the run at 844/1000
+with 213k of 6,000,000 Mistral tokens spent. Now a call waits the throttle out
+(5s, 10s, … capped at 30s, six waves) when anything is still available.
+Covered by `tests/test_throttle_waves.py`.
+
+**2. One un-generatable pair blocked three personas.** `QUOTA_MARKERS` was five
+phrases, four of which print on the normal healthy path whenever a single
+secondary provider parks. founder ended at 999/1000 — one pair short — and the
+substring scan read the routine chatter as a fatal stop, so chanakya, gita and
+reflection never started. 2,200 pairs blocked by one.
+Covered by `tests/test_queue_outcome.py`.
+
+**3. The watcher could not see the queue die.** `queue_running()` asked whether
+any `python.exe` existed; the watcher is one, so it always matched itself. The
+"queue stopped early" branch was unreachable. The queue died at 23:20 and the
+watcher polled on for 40 minutes reporting nothing wrong.
+Covered by `tests/test_queue_detection.py`.
+
+Run all three plus the E2E suite:
+
+```bash
+python tests/test_throttle_waves.py
+python tests/test_queue_outcome.py
+python tests/test_queue_detection.py
+EKA_BASE_URL=http://127.0.0.1:8091 python tests/test_e2e.py
+```
+
+**The last pair of a persona is a genuinely hard draw — this is not a bug.**
+founder sat at 999/1000 across several runs. 14 of its 15 topics were exactly
+full; only `investor relationship` was 59/60, so the final pair had to be about
+that topic *and* unlike the 59 already there. The dedup gate was doing its job.
+Forcing it would mean admitting a near-duplicate, which is worse than being one
+pair short. It cleared on a later attempt with no threshold changed. If a
+persona parks one short, just run its generator again:
+
+```bash
+python ml/scripts/generate_founder_data.py     # or chanakya / gita / reflection
+```
+
+Do **not** relax `_gen_quality.py`'s shortfall check to get past this. It is the
+only thing standing between a near-duplicate and a multi-hour GPU run.
+
+---
+
 ## Everything else is done and verified
 
 Nothing below needs work tomorrow. Verified this session, not assumed:
@@ -90,6 +148,7 @@ Nothing below needs work tomorrow. Verified this session, not assumed:
 | Kaggle scripts | 4 persona LoRA runs, each with checkpoint-resume + secret instructions |
 | Kaggle notebooks | 4 `.ipynb` in `ml/notebooks/`, generated from `training/`, nbformat-valid |
 | Render | `render.yaml` verified against `backend/config.py` — every setting needing a value on Render is declared, no typo'd keys |
+| Backend deps | 4 advisories patched (python-multipart, lightgbm, python-dotenv, PyPDF2→pypdf); E2E 7/7 after the bump |
 | Quality gates | 5 gates + LLM advice judge, all unit-verified |
 
 ---
@@ -199,22 +258,37 @@ python scripts/build_kaggle_notebooks.py --check   # fails if a notebook is stal
    git ls-files | grep -c '^\.env$'      # must print 0
    ```
 
-2. **Rotate the exposed credentials.** Several were pasted in plaintext during
+2. **~60 Dependabot alerts remain, all torch/transformers, none deployed.**
+   GitHub reports 66 total. The four that reach the running backend are fixed
+   (see the table above). The rest are `torch` and `transformers` in
+   `ml/requirements.txt` and `serving/requirements.txt` — `render.yaml`
+   deliberately leaves both uninstalled on the free tier, and the serving
+   services are commented out, so nothing deployed imports them.
+
+   They are **deliberately not bumped**: the Kaggle notebooks pin
+   `transformers==4.41.0` / `torch==2.3.0` inline, that combination is what the
+   training scripts were calibrated against, and changing it hours before four
+   3-hour GPU runs trades a theoretical risk for a real one. The critical
+   `torch.load` advisory needs untrusted weights to matter; these runs load
+   `meta-llama/Meta-Llama-3-8B-Instruct` from the Hub. Revisit after the
+   adapters exist.
+
+3. **Rotate the exposed credentials.** Several were pasted in plaintext during
    the session: `GITHUB_TOKEN` (a classic PAT — likely repo read/write, the
    broadest one), plus the Groq, SambaNova, OpenRouter, Google, and Mistral keys.
    The HF token was already rotated once. Rotate the rest when convenient.
 
-3. **The advice judge is a filter, not a proof.** `advice_regex_hit_rate: 0.0`
+4. **The advice judge is a filter, not a proof.** `advice_regex_hit_rate: 0.0`
    means "no listed phrase appeared" — not "no advice present". The LLM judge
    catches 9/10 on adversarial phrasing; the last 10% needs a stronger judge
    model than 8B. Relevant only to reflection.
 
-4. **The dataset has three teachers**, not one: Llama 3.3 70B (Groq), Nemotron 3
+5. **The dataset has three teachers**, not one: Llama 3.3 70B (Groq), Nemotron 3
    Ultra (OpenRouter), Gemini 2.5 Flash (Google), and now Mistral Large. Every
    pair carries a `provider` field, so a single-teacher subset stays recoverable
    by filtering if the fine-tune shows voice inconsistency.
 
-5. **Nemotron's output length is unstable.** Two identical-prompt batches gave
+6. **Nemotron's output length is unstable.** Two identical-prompt batches gave
    5/5 (user 142–155w) and 0/5 (user 76–95w). The gates catch it; it just costs
    throughput.
 
