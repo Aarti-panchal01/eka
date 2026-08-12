@@ -229,10 +229,22 @@ def main() -> int:
     parser.add_argument(
         "--skip-upload", action="store_true", help="preprocess and gate only"
     )
+    parser.add_argument(
+        "--grace-minutes",
+        type=float,
+        default=15.0,
+        help="keep waiting this long for a vanished queue to come back "
+        "(default 15; 0 exits the moment the queue disappears)",
+    )
     args = parser.parse_args()
 
     print(f"watcher started — polling every {POLL_SECONDS}s, "
-          f"target = {args.min_frac:.0%} of each persona")
+          f"target = {args.min_frac:.0%} of each persona, "
+          f"queue grace {args.grace_minutes:.0f} min")
+
+    # Must exist before the first iteration: if the queue is already absent on
+    # the very first poll, the grace-period branch reads this.
+    gone_since = None
 
     while True:
         rows, done, lines = snapshot(args.min_frac)
@@ -247,14 +259,35 @@ def main() -> int:
         if args.once:
             print("\n--once: not yet complete, exiting without publishing")
             return 1
-        if not queue_running():
-            print(
-                "\n⚠ no python process left but datasets are short — the queue "
-                "stopped early (most likely a provider daily wall).\n"
-                "  Re-run:  python ml/scripts/run_queue.py --all\n"
-                "  Not publishing a partial dataset."
-            )
-            return 2
+        if queue_running():
+            gone_since = None
+        else:
+            # Do NOT exit on the first miss. Restarting the queue is the normal
+            # response to it stopping, and an operator who does that at 00:15
+            # should not find that the watcher disarmed itself at 00:14 and
+            # nothing will ever publish. Measured tonight: the queue stopped at
+            # 23:47, this watcher correctly noticed and exited at 23:48, the
+            # queue was restarted at 23:52 — and the publish step was silently
+            # left with nobody watching it.
+            now = time.monotonic()
+            if gone_since is None:
+                gone_since = now
+                print(
+                    f"\n⚠ the queue is not running and datasets are short.\n"
+                    f"  Waiting up to {args.grace_minutes:.0f} min for it to come "
+                    f"back before giving up. Restart it with:\n"
+                    f"    python ml/scripts/run_queue.py --all"
+                )
+            waited = (now - gone_since) / 60
+            if waited >= args.grace_minutes:
+                print(
+                    f"\n⚠ the queue has been gone {waited:.0f} min and the "
+                    f"datasets are still short — giving up.\n"
+                    f"  Re-run:  python ml/scripts/run_queue.py --all\n"
+                    f"  Then restart this watcher. Not publishing a partial "
+                    f"dataset."
+                )
+                return 2
         time.sleep(POLL_SECONDS)
 
     if not run("PREPROCESS", [PYTHON, "ml/scripts/preprocess.py"]):
