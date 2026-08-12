@@ -78,6 +78,13 @@ FOUNDER = ("founder", "generate_founder_data.py", "founder_dataset.json")
 # problem — never started at all.
 QUOTA_MARKERS = ("Every configured provider failed or is out of quota for today",)
 
+# How far short a persona may end and still be worth one extra attempt at the
+# end of the queue. Sized for the dedup-saturation case (a handful of pairs),
+# not for a run that stopped early — a persona 300 short did not lose a hard
+# draw, it lost its providers, and re-running it inside the same session would
+# just hit the same wall.
+SWEEP_MAX_SHORTFALL = 10
+
 
 def target_for(module: str) -> int:
     """Read a persona's target without importing its whole dependency chain."""
@@ -256,6 +263,43 @@ def main() -> int:
                 f"  See ml/datasets/{name}_run.log before re-running."
             )
             break
+
+    # SECOND SWEEP for personas that ended a few pairs short.
+    #
+    # This is the founder-999 case, and it is structural rather than rare: as a
+    # topic fills up, each remaining pair has to be about that topic AND unlike
+    # every pair already there, so the dedup gate rejects the last one or two
+    # far more often than the first hundred. founder sat at 999/1000 across
+    # several runs tonight and then cleared on a fresh attempt with nothing
+    # changed.
+    #
+    # It matters because the shortfall is a hard block downstream: the quality
+    # report treats ANY shortfall as blocking, and watch_and_publish refuses to
+    # publish a persona that is not ok_to_train. So one missing pair at 03:00
+    # means nothing is on the Hub at 07:00. A single extra attempt per persona
+    # is cheap — one batch call — and turns the common case into a non-event.
+    #
+    # Deliberately one sweep, not a loop: if a fresh attempt does not close the
+    # gap, something is actually wrong and grinding on it would burn quota to
+    # no purpose.
+    if not any(v in ("quota", "error") for v in results.values()):
+        stragglers = [
+            (name, module, dataset)
+            for name, module, dataset in queue
+            if results.get(name) == "short"
+            and count_on_disk(dataset) >= target_for(module) - SWEEP_MAX_SHORTFALL
+        ]
+        for name, module, dataset in stragglers:
+            have, want = count_on_disk(dataset), target_for(module)
+            print(
+                f"\n{'=' * 64}\n"
+                f"  SECOND SWEEP: {name} finished {want - have} short "
+                f"({have}/{want}).\n"
+                f"  The last pairs of a persona are the hardest draw — retrying "
+                f"once.\n"
+                f"{'=' * 64}"
+            )
+            results[name] = run_one(name, module, dataset)
 
     print(f"\n{'=' * 64}\n  QUEUE SUMMARY\n{'=' * 64}")
     for name, _module, dataset in ([FOUNDER] + QUEUE):
