@@ -493,6 +493,12 @@ class ProviderRotator:
         # GROQ_API_KEY is set. Allow real retries, and sleep out a transient
         # limit when no alternative provider is available.
         self.max_rotations = max_rotations or max(4, len(self.configured) * 2)
+        # How many times a call may exhaust its rotation budget on TRANSIENT
+        # throttles before it gives up. Burning the budget is not the same
+        # condition as every provider being walled for the day, and conflating
+        # the two killed a run at 844/1000 with 213k of 6,000,000 Mistral tokens
+        # spent and all four keys answering fine a minute later. See complete().
+        self.max_throttle_waves = 6
 
     # ------------------------------------------------- daily usage tracking
     # Persisted to disk and keyed by local date, so the count survives
@@ -636,7 +642,42 @@ class ProviderRotator:
 
         estimate = estimate if estimate is not None else max_tokens + 2_000
         attempts = 0
-        while attempts < self.max_rotations:
+        waves = 0
+        while True:
+            if attempts >= self.max_rotations:
+                # THE ROTATION BUDGET IS BURNED. That is not the same thing as
+                # "every provider is out for the day", and the caller treats a
+                # None return as exactly that — it sets a fatal flag and stops
+                # the whole run.
+                #
+                # Measured 2026-08-12 23:20: a run died at founder 844/1000
+                # after ~16 consecutive `rate limited, rotating (hint 2s)`
+                # lines. Every one was a TWO SECOND throttle; the daily-wall
+                # branch never fired once. A --check a minute later had all
+                # four Mistral keys answering, 213k of 6,000,000 tokens spent.
+                # Six concurrent workers against four keys at ~1 req/s burst
+                # past the per-key rate, and because a rotation costs no wall
+                # time when alternatives exist, the budget drains in seconds.
+                #
+                # available() is the honest test: it is false only when a
+                # provider is parked or daily-exhausted, so if anything is
+                # still available this is a throttle to be waited out, not a
+                # wall to stop for. (A genuinely empty pool already returned
+                # via _next_available() below.)
+                if not self.available or waves >= self.max_throttle_waves:
+                    break
+                waves += 1
+                attempts = 0
+                # Linear, not exponential: these are ~2s hints, so the aim is to
+                # let the per-key windows drain, not to back off hard.
+                wait = min(5.0 * waves, 30.0)
+                print(
+                    f"  ⏳ all {len(self.available)} available provider(s) "
+                    f"throttled — waiting {wait:.0f}s (wave {waves}/"
+                    f"{self.max_throttle_waves}) rather than calling it a day"
+                )
+                await asyncio.sleep(wait)
+
             provider = await self._next_available()
             if provider is None:
                 print("  ✗ every configured provider is exhausted for today")
@@ -783,7 +824,12 @@ class ProviderRotator:
                     # Nothing was consumed on any failure path, so refund fully.
                     await pacer.settle(ticket, 0.0)
 
-        print("  ✗ all providers failed this call")
+        print(
+            f"  ✗ all providers failed this call after {waves} throttle wave(s) "
+            f"— {len(self.available)} still available, "
+            f"{len([p for p in self.providers if p.configured and not p.available()])} "
+            f"parked/exhausted"
+        )
         return None, None, None
 
     # --------------------------------------------------------------- stats

@@ -31,6 +31,20 @@ import sys
 import time
 from pathlib import Path
 
+# The child generators emit ✓ ↻ ⇄ ⏳ →, and this process relays every one of
+# their lines to its own stdout. A stock Windows console is cp1252, where that
+# relay raises UnicodeEncodeError and kills the QUEUE — not just the line —
+# taking a running generation down with it. Measured 2026-08-12: a restart died
+# on '→' four seconds in, after the child had already started work.
+#
+# The subprocess pipe below is explicitly utf-8/replace already; this gives the
+# relay target the same treatment so the two ends match. errors="replace" rather
+# than "ignore" so an unrenderable glyph shows as ? instead of vanishing.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 SCRIPTS = Path(__file__).resolve().parent
 DATASETS = SCRIPTS.parent / "datasets"
 PROJECT = SCRIPTS.parent.parent

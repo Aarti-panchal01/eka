@@ -14,7 +14,19 @@ gets a fix.
 import argparse
 import asyncio
 import re
+import sys
 from typing import Dict
+
+# Windows consoles default to cp1252, which cannot encode ✓/↻/⇄. Every other
+# entry point in this package already does this; this one was the gap, and it
+# is the module all four generate_<mode>_data.py scripts print through — so a
+# direct `python ml/scripts/generate_founder_data.py` on a stock terminal died
+# on the first status line.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from _gen_async import DEFAULT_MODEL, PAIRS_PER_CALL, generate_dataset_async
 from _gen_common import DATASETS_DIR, load_existing
