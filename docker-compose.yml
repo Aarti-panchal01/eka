@@ -1,0 +1,133 @@
+# ============================================================================
+# EKA — local development stack.
+#
+#   docker compose up              -> postgres + qdrant + backend only
+#   docker compose --profile classifiers up
+#                                   -> adds the three standalone serving/
+#                                      services (ranker/complexity/sentiment)
+#
+# Requires a .env at the project root (copy .env.example -> .env first).
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------- postgres
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: eka
+      POSTGRES_USER: eka
+      # Falls back to eka_local_password if DB_PASSWORD isn't set in .env —
+      # matches the DEFAULT_PATH default used by config.py's DATABASE_URL.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-eka_local_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eka -d eka"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ----------------------------------------------------------------- qdrant
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # ---------------------------------------------------------------- backend
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Overrides on top of whatever .env has, so the container always talks
+      # to the *compose-network* Postgres/Qdrant hostnames rather than
+      # whatever DATABASE_URL/QDRANT_URL your .env has for other contexts
+      # (e.g. a real Supabase/Qdrant Cloud URL you use for `python main.py`
+      # run straight on the host).
+      DATABASE_URL: postgresql+asyncpg://eka:${DB_PASSWORD:-eka_local_password}@postgres:5432/eka
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ""
+      LLM_MODE: groq
+      ENVIRONMENT: docker
+      # config.py computes the DEFAULT RANKER_MODEL_PATH as
+      # PROJECT_ROOT/ml/models/ranker/eka_ranker.txt, where PROJECT_ROOT is
+      # `backend/`'s parent directory ON THE HOST. Inside this container
+      # WORKDIR is /app (== ./backend copied/mounted in), so that same
+      # relative computation would resolve to "/ml/models/..." — one level
+      # above /app, which doesn't exist in the container's filesystem at all.
+      # Rather than fight that path math, we mount ./ml/models straight to
+      # /models (below) and point RANKER_MODEL_PATH at it explicitly. This is
+      # simpler than trying to recreate the host's backend/../ml layout
+      # inside /app, and it's the same pattern the standalone
+      # serving/ranker_serve.py container uses (see the `classifiers`
+      # profile services further down).
+      RANKER_MODEL_PATH: /models/ranker/eka_ranker.txt
+    volumes:
+      # Live-reload the backend on host code changes.
+      - ./backend:/app
+      # See the RANKER_MODEL_PATH comment above — /models is an arbitrary
+      # path chosen just for this mount, unrelated to config.py's ML_DIR.
+      - ./ml/models:/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ============================================================================
+  # Standalone classifier services — OFF by default. Bring up with:
+  #   docker compose --profile classifiers up
+  # Point the backend at them by setting COMPLEXITY_SERVE_URL /
+  # RANKER_SERVE_URL / SENTIMENT_SERVE_URL in .env to these containers'
+  # compose-network hostnames (e.g. http://ranker-serve:8005) and restarting
+  # the backend service — otherwise it keeps running everything in-process.
+  # ============================================================================
+
+  ranker-serve:
+    profiles: ["classifiers"]
+    build:
+      context: ./serving
+    ports:
+      - "8005:8005"
+    environment:
+      RANKER_MODEL_PATH: /models/ranker/eka_ranker.txt
+      PORT: "8005"
+    volumes:
+      - ./ml/models:/models
+    command: uvicorn ranker_serve:app --host 0.0.0.0 --port 8005
+
+  complexity-serve:
+    profiles: ["classifiers"]
+    build:
+      context: ./serving
+    ports:
+      - "8004:8004"
+    env_file:
+      - .env
+    environment:
+      PORT: "8004"
+    command: uvicorn complexity_serve:app --host 0.0.0.0 --port 8004
+
+  sentiment-serve:
+    profiles: ["classifiers"]
+    build:
+      context: ./serving
+    ports:
+      - "8007:8007"
+    env_file:
+      - .env
+    environment:
+      PORT: "8007"
+    command: uvicorn sentiment_serve:app --host 0.0.0.0 --port 8007
+
+volumes:
+  postgres_data:
+  qdrant_data:

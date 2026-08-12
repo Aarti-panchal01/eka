@@ -1,0 +1,165 @@
+============================================================================
+EKA — keeping the Render free-tier backend awake with UptimeRobot
+============================================================================
+
+WHY THIS EXISTS
+----------------
+Render's free web service plan spins the instance down after 15 minutes with
+no incoming HTTP traffic. The container is stopped, not just idling — the
+next request has to boot a fresh instance: pull the image / run the build
+artifact, start uvicorn, run Eka's lifespan startup (connect to Postgres,
+ensure the Qdrant collection, etc). That cold start takes roughly 30-60
+seconds, sometimes more on a slow Groq/Qdrant handshake. To a real user this
+looks like the app hanging on their first message.
+
+A free external "uptime monitor" that pings the service on a schedule is the
+standard workaround: as long as something requests a URL often enough, the
+instance never goes idle long enough to sleep, so every real user request
+hits an already-warm process.
+
+Eka's GET /health endpoint is built for exactly this — it returns full
+service status (LLM, database, Qdrant, classifiers) as JSON, so a monitor
+hitting it also doubles as a live health dashboard.
+
+------------------------------------------------------------------------
+OPTION A — UptimeRobot (recommended, free, no infrastructure of your own)
+------------------------------------------------------------------------
+1. Go to https://uptimerobot.com and create a free account (free plan
+   supports up to 50 monitors at 5-minute intervals — one monitor is all
+   we need).
+
+2. Dashboard -> "Add New Monitor".
+
+3. Fill in:
+     Monitor Type     : HTTP(s)
+     Friendly Name     : Eka backend (Render)
+     URL (or IP)       : https://YOUR-APP.onrender.com/health
+                          (replace YOUR-APP with the actual Render service
+                          hostname — check the Render dashboard for the exact
+                          .onrender.com URL after first deploy)
+     Monitoring Interval: 5 minutes
+                          (see the tradeoff note below before picking this)
+
+4. Under "Alert Contacts to Notify", add your email (or Slack/Telegram/etc
+   if you've connected one) so you actually hear about it if /health starts
+   returning "status": "error" or "degraded", not just if the ping times out.
+
+5. Optional but useful: under "Advanced Settings" you can set
+   "HTTP Method" = HEAD or GET (GET is fine and gives you the JSON body in
+   the response log if you ever need to check it), and you can require the
+   response to contain a keyword — e.g. require the string "status" to be
+   present, so a completely broken deploy (500s, DNS failure) alerts you
+   distinctly from a normal degraded health check.
+
+6. Save. UptimeRobot will start hitting /health on the chosen interval
+   immediately. Give it 15-20 minutes and check the monitor's uptime graph
+   to confirm it's actually reaching the service.
+
+------------------------------------------------------------------------
+THE HONEST TRADEOFF — instance-hours are not unlimited
+------------------------------------------------------------------------
+Render's free tier gives every account a shared monthly budget of instance
+hours across all free services (not per-service). A service that never
+sleeps burns hours 24/7 — roughly 720-750 hours/month for a single service,
+which is close to the entire monthly budget on some account tiers, leaving
+little or no room for other free services you might run (e.g. the
+serving/*_serve.py classifier services, if you ever deploy those on free
+plans too).
+
+In plain terms: a 5-minute ping keeps the backend awake essentially all the
+time, which is great for user experience but means you are paying for that
+uptime out of your free instance-hour allowance rather than the free tier's
+free "sleep when idle" tradeoff Render designed in.
+
+Two ways to think about this:
+  - If Eka is your only free service and you don't mind spending the whole
+    monthly allowance on keeping it warm, 5 minutes is fine and simplest.
+  - If you're running other free services too, or want some headroom, use a
+    LONGER interval instead. 15 minutes is a reasonable middle ground: it is
+    right at Render's own sleep threshold, so the service will still sleep
+    briefly between some pings (you'll occasionally eat one cold start) but
+    spends far fewer cumulative instance-hours awake than a 5-minute ping.
+    UptimeRobot's free plan supports intervals down to 5 minutes and up to
+    much longer, so 15 minutes is easy to configure — just pick "Every 15
+    minutes" during monitor setup instead of 5.
+
+There is no setting that gives you "always warm" AND "free instance-hours
+untouched" — that's the actual constraint Render's free tier imposes. Pick
+the interval based on which side of that tradeoff matters more to you right
+now, and revisit it if you upgrade to a paid plan (paid instances don't
+sleep at all, making this entire note moot).
+
+------------------------------------------------------------------------
+OPTION B — curl + cron (Linux/Mac, or any box that stays on)
+------------------------------------------------------------------------
+If you have a machine, VM, or another always-on server (even a Raspberry Pi)
+that you control, you can skip UptimeRobot entirely and just cron a curl:
+
+    crontab -e
+
+Add a line to ping every 5 minutes:
+
+    */5 * * * * curl -fsS -o /dev/null https://YOUR-APP.onrender.com/health
+
+Or every 15 minutes (the middle-ground interval discussed above):
+
+    */15 * * * * curl -fsS -o /dev/null https://YOUR-APP.onrender.com/health
+
+Notes:
+  -f makes curl fail (nonzero exit) on HTTP errors instead of printing the
+     error body, -s silences progress output, -S re-enables error messages
+     on failure, -o /dev/null discards the response body since we only care
+     that it happened. If you want logging, redirect instead of discarding:
+
+    */5 * * * * curl -fsS https://YOUR-APP.onrender.com/health >> /var/log/eka-ping.log 2>&1
+
+This has the same instance-hours tradeoff as Option A — it's just a
+self-hosted version of the same ping. Its only real advantage over
+UptimeRobot is not depending on a third party, and being able to log/alert
+however you like.
+
+------------------------------------------------------------------------
+OPTION C — Windows: PowerShell Scheduled Task
+------------------------------------------------------------------------
+If your "always-on box" is a Windows machine, use Task Scheduler instead of
+cron. This creates a task that runs a health-check ping every 5 minutes:
+
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument '-NoProfile -WindowStyle Hidden -Command "try { Invoke-WebRequest -Uri ''https://YOUR-APP.onrender.com/health'' -UseBasicParsing -TimeoutSec 30 | Out-Null } catch {}"'
+
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Minutes 5) `
+        -RepetitionDuration (New-TimeSpan -Days 3650)
+
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+    Register-ScheduledTask -TaskName "EkaBackendPing" `
+        -Action $action -Trigger $trigger -Settings $settings `
+        -Description "Keeps the Render free-tier Eka backend warm"
+
+For the 15-minute middle ground, change both RepetitionInterval above to
+`-Minutes 15`.
+
+To verify it's registered and check its run history:
+
+    Get-ScheduledTask -TaskName "EkaBackendPing"
+    Get-ScheduledTaskInfo -TaskName "EkaBackendPing"
+
+To remove it later:
+
+    Unregister-ScheduledTask -TaskName "EkaBackendPing" -Confirm:$false
+
+Caveat specific to this option: a Scheduled Task only runs while the
+Windows machine itself is on (and, depending on power settings, awake/not
+locked down by sleep). It is not a substitute for UptimeRobot if the point
+is keeping Eka warm independent of your own PC's uptime — for that, Option A
+is the right tool. Use Option C if you already have a Windows machine that's
+on anyway and would rather not sign up for a third-party monitor.
+
+============================================================================
+Recap: set up UptimeRobot (Option A) against
+https://YOUR-APP.onrender.com/health at a 5- or 15-minute interval depending
+on how much of your free instance-hours you're willing to spend keeping the
+backend warm. Options B/C exist if you'd rather self-host the same ping.
+============================================================================

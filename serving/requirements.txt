@@ -1,0 +1,22 @@
+# Eka serving/ — standalone classifier microservices
+# (complexity_serve.py, ranker_serve.py, sentiment_serve.py)
+#
+# All three share this one requirements file/image (see serving/Dockerfile);
+# which script actually runs is selected by the container CMD, not by the
+# dependency set. ranker_serve.py only needs the top block (fastapi/numpy/
+# lightgbm); complexity_serve.py and sentiment_serve.py additionally need
+# torch+transformers below.
+
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+pydantic==2.7.1
+numpy==1.26.4
+lightgbm==4.3.0
+
+# --- torch + transformers, for complexity_serve.py / sentiment_serve.py ---
+# CPU-only build, installed from PyTorch's own CPU wheel index in the
+# Dockerfile (--index-url https://download.pytorch.org/whl/cpu) rather than
+# from PyPI directly — the default PyPI torch wheel pulls in CUDA libraries
+# that are multiple GB and entirely useless on a CPU-only serving box.
+torch==2.3.0
+transformers==4.41.0

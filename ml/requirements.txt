@@ -1,0 +1,23 @@
+# Eka ML — data generation (laptop/CPU) + training (Kaggle T4)
+torch==2.3.0
+transformers==4.41.0
+peft==0.11.1
+trl==0.8.6
+datasets==2.19.1
+accelerate==0.30.0
+bitsandbytes==0.43.1
+sentence-transformers==3.0.1
+wandb==0.17.0
+huggingface-hub==0.23.2
+groq==0.9.0
+lightgbm==4.3.0
+scikit-learn==1.5.0
+scipy==1.13.0
+evaluate==0.4.2
+rouge-score==0.1.2
+python-dotenv==1.0.1
+numpy==1.26.4
+tqdm==4.66.4
+
+# Data-generation scripts only need a tiny subset. On your laptop:
+#   pip install groq python-dotenv tqdm

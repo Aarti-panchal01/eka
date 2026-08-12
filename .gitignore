@@ -1,0 +1,70 @@
+# ---- secrets ----------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+kaggle.json
+
+# ---- python -----------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---- ml artifacts (big; live on HF Hub instead) ------------------------
+ml/models/
+ml/data/raw/
+ml/data/processed/
+ml/data/splits/
+!ml/models/.gitkeep
+!ml/data/raw/.gitkeep
+*.safetensors
+*.bin
+*.gguf
+*.ckpt
+wandb/
+
+# Generated datasets are large but reproducible — keep them out of git and
+# push them to the HF Hub dataset repo instead (ml/scripts/upload_to_hf.py).
+ml/datasets/*.json
+ml/datasets/*.jsonl
+!ml/datasets/.gitkeep
+
+# ---- node / frontend --------------------------------------------------
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+
+# ---- os / editor ------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# ---- runtime ----------------------------------------------------------
+*.log
+*.db
+*.sqlite3
+.audio_cache/
+
+# ---- generation runtime state ------------------------------------------
+ml/datasets/.provider_usage.json
+ml/datasets/*_run.log
+ml/datasets/*_run.log.err
+ml/datasets/pipeline.log

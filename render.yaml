@@ -1,0 +1,194 @@
+# ============================================================================
+# EKA — Render Blueprint (render.yaml)
+#
+# Deploy: https://dashboard.render.com/blueprints -> New Blueprint Instance,
+# point it at this repo. Render reads this file and creates the service(s)
+# below. Anything marked `sync: false` is a secret — Render will prompt for
+# it in the dashboard on first deploy instead of reading a value from here,
+# so nothing sensitive ever lands in git.
+#
+# ----------------------------------------------------------------------------
+# IMPORTANT — ENABLE_LOCAL_CLASSIFIERS is hardcoded to "false" below.
+#
+# The free web service plan gives 512MB RAM. torch + transformers installed
+# is ~800MB on disk and easily 400-600MB resident once a model is loaded
+# (complexity + sentiment models loaded together would blow the box on their
+# own, before FastAPI, asyncpg, and Qdrant's client even get a look in).
+#
+# With ENABLE_LOCAL_CLASSIFIERS=false, backend/services/complexity_service.py
+# and sentiment_service.py skip loading transformers entirely and fall back
+# to their word-count / lexicon heuristics — see serving/complexity_serve.py
+# and serving/sentiment_serve.py for the same fallback logic in isolation.
+# The ranker (lightgbm, ~10MB, no torch) still runs in-process either way;
+# it is cheap enough that this flag does not gate it.
+#
+# The three *_SERVE_URL vars are also left empty here, which tells the
+# backend to do everything in-process (heuristics included) rather than call
+# out to separate classifier services. That is the only configuration that
+# fits a single free instance.
+#
+# To get the *real* transformer-based classifiers instead of heuristics you
+# need either:
+#   (a) a paid Render instance (Starter or above) with enough RAM to install
+#       torch and set ENABLE_LOCAL_CLASSIFIERS=true, or
+#   (b) run them as separate services (see the commented-out block at the
+#       bottom of this file) — but those cost their own instance-hours too,
+#       so on the free tier this only makes sense if you have spare paid
+#       capacity elsewhere, or run them locally / on your own machine and
+#       point *_SERVE_URL at that via a tunnel.
+# ============================================================================
+
+services:
+  - type: web
+    name: eka-backend
+    runtime: python
+    plan: free
+    # Singapore is the closest Render region to India. Alternatives, in order
+    # of latency from India: singapore (best) > oregon / ohio / virginia (US,
+    # much higher latency) > frankfurt (EU, also high latency). Render does
+    # not currently offer a Mumbai/India region — singapore is the practical
+    # choice until they do.
+    region: singapore
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ---------------------------------------------------------- app
+      - key: ENVIRONMENT
+        value: render
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+      # ---------------------------------------------------------- LLM
+      - key: LLM_MODE
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: GROQ_GEN_MODEL
+        sync: false
+      - key: OLLAMA_BASE_URL
+        sync: false
+      - key: OLLAMA_MODEL_PREFIX
+        sync: false
+      - key: HF_SPACE_URL
+        sync: false
+
+      # ------------------------------------------------- hugging face
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_USERNAME
+        sync: false
+
+      # -------------------------------------------------------- database
+      - key: DATABASE_URL
+        sync: false
+
+      # ------------------------------------------------------ vector db
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION
+        value: memories
+      - key: EMBEDDING_DIM
+        value: "768"
+
+      # ---------------------------------------------------------- voice
+      - key: SARVAM_API_KEY
+        sync: false
+
+      # ----------------------------------------------- classifier serving
+      # Empty string = run in-process. See the big comment block at the top
+      # of this file for why these three stay empty on the free tier.
+      - key: COMPLEXITY_SERVE_URL
+        value: ""
+      - key: RANKER_SERVE_URL
+        value: ""
+      - key: SENTIMENT_SERVE_URL
+        value: ""
+      - key: ENABLE_LOCAL_CLASSIFIERS
+        value: "false"
+
+      # -------------------------------------------------------------- wandb
+      - key: WANDB_API_KEY
+        sync: false
+
+      # ---------------------------------------------------------- runtime
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # backend/main.py starts the self-ping when KEEP_ALIVE=1 OR when
+      # ENVIRONMENT=render. Both are true here — the explicit flag is set so
+      # the behaviour does not silently depend on the ENVIRONMENT value.
+      # Read infra/setup_render.md before relying on this: a self-ping cannot
+      # wake an already-suspended instance, only UptimeRobot can.
+      - key: KEEP_ALIVE
+        value: "1"
+      - key: KEEP_ALIVE_INTERVAL
+        value: "600"
+
+  # --------------------------------------------------------------------------
+  # Standalone classifier services (serving/). Commented out — uncomment and
+  # deploy these ONLY if you have paid instances to run them on (torch +
+  # transformers do not fit the free tier's 512MB either, same constraint as
+  # the backend above). When you do bring one up, set the matching
+  # *_SERVE_URL env var on eka-backend (above) to its .onrender.com URL so
+  # the backend calls out to it instead of running in-process.
+  # --------------------------------------------------------------------------
+  # - type: web
+  #   name: eka-ranker-serve
+  #   runtime: python
+  #   plan: free              # lightgbm only, no torch — this one DOES fit free
+  #   region: singapore
+  #   rootDir: serving
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: uvicorn ranker_serve:app --host 0.0.0.0 --port $PORT
+  #   healthCheckPath: /health
+  #   envVars:
+  #     - key: RANKER_MODEL_PATH
+  #       sync: false          # path to eka_ranker.txt on this instance's disk
+  #     - key: PYTHON_VERSION
+  #       value: 3.11.9
+  #
+  # - type: web
+  #   name: eka-complexity-serve
+  #   runtime: python
+  #   plan: starter            # needs torch+transformers -> requires paid RAM
+  #   region: singapore
+  #   rootDir: serving
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: uvicorn complexity_serve:app --host 0.0.0.0 --port $PORT
+  #   healthCheckPath: /health
+  #   envVars:
+  #     - key: HF_USERNAME
+  #       sync: false
+  #     - key: HF_TOKEN
+  #       sync: false
+  #     - key: PYTHON_VERSION
+  #       value: 3.11.9
+  #
+  # - type: web
+  #   name: eka-sentiment-serve
+  #   runtime: python
+  #   plan: starter            # needs torch+transformers -> requires paid RAM
+  #   region: singapore
+  #   rootDir: serving
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: uvicorn sentiment_serve:app --host 0.0.0.0 --port $PORT
+  #   healthCheckPath: /health
+  #   envVars:
+  #     - key: HF_USERNAME
+  #       sync: false
+  #     - key: HF_TOKEN
+  #       sync: false
+  #     - key: PYTHON_VERSION
+  #       value: 3.11.9
