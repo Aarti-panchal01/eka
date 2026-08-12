@@ -59,6 +59,9 @@ desktop.ini
 
 # ---- runtime ----------------------------------------------------------
 *.log
+# Backgrounded runs redirect stderr to a sibling .log.err, which `*.log` does
+# not match — without this, every detached run dirties the tree.
+*.log.err
 *.db
 *.sqlite3
 .audio_cache/
@@ -68,3 +71,5 @@ ml/datasets/.provider_usage.json
 ml/datasets/*_run.log
 ml/datasets/*_run.log.err
 ml/datasets/pipeline.log
+ml/datasets/.throughput_sample
+ml/datasets/.throughput_result.json

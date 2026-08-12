@@ -10,52 +10,68 @@ before planning your day; the timeline is not what it looked like last night.
 ```bash
 cd ~/eka
 bash scripts/morning_checklist.sh          # what finished, what's blocked
-python ml/scripts/run_queue.py --all       # resume generation (quotas reset)
 ```
 
-Then leave it. When all four datasets hit target, publish and start Kaggle:
+**Read section 2 of that output before you type anything else.** The queue, the
+watcher, and the backend were all left running overnight. If it says `queue
+RUNNING`, do *not* start another — two queues share provider quotas and will
+429 each other. Only if it says `stopped`:
 
 ```bash
-python scripts/watch_and_publish.py        # waits, then preprocess + upload + Kaggle steps
+python ml/scripts/run_queue.py --all       # resume generation (resume-safe)
+python scripts/watch_and_publish.py        # waits, then preprocess + upload
 ```
+
+Most likely branch: generation finished overnight and the watcher already
+published to the Hub. Then you go straight to Kaggle — step 4.
 
 ---
 
 ## Reality check — read this first
 
-**Generation is the only thing behind, and it is behind by days, not hours.**
+**The 23:00 update supersedes everything written earlier tonight. Generation is
+now roughly 1.5–2 hours from done, not 1–3 days.** The four-Mistral-key
+round-robin changed the picture completely.
+
+Measured at 23:00 on 2026-08-12, two independent ways that agree:
+
+| method | window | rate |
+|---|---|---|
+| direct sample of `founder_dataset.json` | 5.8 min | **26.4 pairs/min** |
+| `watcher.log` 2-min series, steady state | 6 min | **27.1 pairs/min** |
+
+That is **~1,600 pairs/hr**, against the **76–216 pairs/hr** this file claimed an
+hour earlier. The old number was measured when Mistral was a single key and the
+only live provider. Do not plan against the old figure.
+
+Live state at 23:02 (it moves ~26 pairs every minute, so re-read it):
 
 | persona | on disk | target |
 |---|---:|---:|
-| founder | ~205 | 1000 |
+| founder | ~590 | 1000 |
 | chanakya | 0 | 600 |
 | gita | 0 | 600 |
 | reflection | 0 | 1000 |
 
-Last night's "all data ready tomorrow afternoon" estimate came from a
-**2.5-minute throughput sample (216 pairs/hr)**. A later measurement over a
-longer window gave ~76 pairs/hr including startup. The honest range is
-**76–216 pairs/hr while Mistral is the only live provider**, and ~3,000 pairs
-remain. Plan on **1–3 more days of generation**, and re-measure before trusting
-any ETA. Do not build the day around the optimistic end.
+~2,600 pairs remain → **~1.6 h** at the measured rate. The queue and the watcher
+are both already running, so if they survive the night this is finished before
+you wake up and the watcher will have published it unattended.
 
-**Why only Mistral:** every other free provider hit a hard daily wall.
+**Why it got fast:** four Mistral keys now round-robin, and Groq and OpenRouter
+came back. Confirmed 8 distinct providers across 8 consecutive picks.
 
 | provider | status | real daily ceiling |
 |---|---|---|
-| mistral | **working** | meters per MONTH (~1B tokens) — effectively unlimited here |
-| groq | out | 100,000 tokens/day (~133 pairs) |
+| mistral ×4 keys | **working** | meters per MONTH (~1B tokens) — effectively unlimited |
+| groq | back | 100,000 tokens/day (~133 pairs) |
+| openrouter | back | opaque; ~112 pairs before it stopped last time |
 | google | out | **20 requests/day** (~100 pairs) — requests bind, not tokens |
-| openrouter | out | opaque; delivered ~112 pairs before stopping |
 | github | **retired** | HTTP 410 `github_models_retirement_brownout` — gone, not throttled |
 
-Groq, Google, and OpenRouter reset overnight, so tomorrow starts with four live
-providers instead of one. That is the main reason to expect a better rate.
-
-**The paid alternative, since it keeps coming up:** the Anthropic Batches API
-does all 3,000 remaining pairs for roughly **$4.50**. Given how much time this
-has absorbed, that is worth a second look before committing to more days of
-free-tier rotation.
+**On the paid shortcut:** earlier drafts of this file recommended spending ~$4.50
+on the Anthropic Batches API to finish the remaining pairs. At 1,600 pairs/hr
+that is no longer worth doing — the free rotation finishes tonight. Keep it in
+your pocket only if the Mistral keys wall unexpectedly.
 
 ---
 
@@ -72,7 +88,8 @@ Nothing below needs work tomorrow. Verified this session, not assumed:
 | HF Hub repos | all **9** exist and are private under `amijackofalltrades` |
 | HF auth | token rotated and verified (`whoami` → `amijackofalltrades`) |
 | Kaggle scripts | 4 persona LoRA runs, each with checkpoint-resume + secret instructions |
-| Render | `render.yaml` complete; `infra/setup_render.md` written |
+| Kaggle notebooks | 4 `.ipynb` in `ml/notebooks/`, generated from `training/`, nbformat-valid |
+| Render | `render.yaml` verified against `backend/config.py` — every setting needing a value on Render is declared, no typo'd keys |
 | Quality gates | 5 gates + LLM advice judge, all unit-verified |
 
 ---
@@ -127,6 +144,29 @@ python scripts/watch_and_publish.py --min-frac 0.9
 
 Only after step 3 uploads successfully. Full detail in
 `scripts/start_kaggle_training.md`; the short version:
+
+**Upload the notebook, don't paste the script.** `ml/notebooks/` now holds one
+`.ipynb` per persona:
+
+```
+ml/notebooks/eka_founder_lora_kaggle.ipynb
+ml/notebooks/eka_chanakya_lora_kaggle.ipynb
+ml/notebooks/eka_gita_lora_kaggle.ipynb
+ml/notebooks/eka_reflection_lora_kaggle.ipynb
+```
+
+Kaggle → **New Notebook → File → Import Notebook**. Each is the matching
+`training/*.py` split into one cell per section, so a failure gives you a
+traceback pointing at a named stage, and you can re-run just the push-to-Hub
+cell if a 3-hour train succeeds and the upload 401s. Pasting the whole script
+into one cell still works — it is the same code — you just lose both of those.
+
+These are **generated**. Edit `training/train_*.py`, then:
+
+```bash
+python scripts/build_kaggle_notebooks.py           # rebuild all four
+python scripts/build_kaggle_notebooks.py --check   # fails if a notebook is stale
+```
 
 - Session 1 = **founder**. Watch this one to completion — every mistake you're
   going to make (unattached secret, unaccepted Llama license, missing split)

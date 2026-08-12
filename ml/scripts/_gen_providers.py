@@ -228,18 +228,35 @@ def default_providers() -> List[Provider]:
             },
             notes="nemotron-3-ultra-550b, verified 5/5 on a real batch",
         ),
-        Provider(
-            name="mistral",
-            base_url="https://api.mistral.ai/v1",
-            model=os.environ.get("MISTRAL_MODEL_ID", "mistral-large-latest"),
-            api_key_env="MISTRAL_API_KEY",
-            tokens_per_minute=int(os.environ.get("MISTRAL_TPM", "10000")),
-            # Mistral's free tier meters per MONTH (~1B tokens), not per day, so
-            # a daily cap is a self-imposed pacing guard rather than their limit.
-            # Their binding free-tier constraint is ~1 request/second.
-            daily_token_limit=int(os.environ.get("MISTRAL_DAILY_TOKENS", "500000")),
-            notes="free tier ~1B tokens/month; ~1 req/sec",
-        ),
+        # One Provider per Mistral account. Separate accounts have INDEPENDENT
+        # monthly quotas, so each needs its own counters and its own TokenPacer —
+        # a shared pacer would throttle all four to one account's rate and defeat
+        # the point. Unset keys are skipped like any other unconfigured provider,
+        # so this degrades cleanly to a single account.
+        *[
+            Provider(
+                name=f"mistral-{i}",
+                base_url="https://api.mistral.ai/v1",
+                model=os.environ.get("MISTRAL_MODEL_ID", "mistral-large-latest"),
+                api_key_env=env_var,
+                tokens_per_minute=int(os.environ.get("MISTRAL_TPM", "30000")),
+                # Mistral meters per MONTH (~1B tokens), not per day, so a daily
+                # cap is a self-imposed pacing guard rather than their limit.
+                daily_token_limit=int(
+                    os.environ.get("MISTRAL_DAILY_TOKENS", "6000000")
+                ),
+                notes=f"account {i}; free tier ~1B tokens/month",
+            )
+            for i, env_var in enumerate(
+                [
+                    "MISTRAL_API_KEY",
+                    "MISTRAL_API_KEY_2",
+                    "MISTRAL_API_KEY_3",
+                    "MISTRAL_API_KEY_4",
+                ],
+                start=1,
+            )
+        ],
         Provider(
             name="github",
             # RETIRED — kept configured so it self-reports rather than being
@@ -564,12 +581,31 @@ class ProviderRotator:
 
     # ------------------------------------------------------------- rotation
     async def _next_available(self) -> Optional[Provider]:
+        """Pick the next available provider, ROUND-ROBIN.
+
+        This used to return the first available provider and leave the index
+        parked on it, so concurrent callers all landed on the same provider and
+        only moved on when it failed. That was right when the providers were
+        different models (sticking kept output on one quantisation), but it is
+        wrong once several entries are the same model on independent accounts:
+        four Mistral keys would be drained one at a time instead of running
+        together, and the concurrency limit would gate on a single account's
+        rate.
+
+        Advancing the index past the provider we hand out makes concurrent calls
+        fan across all available accounts, which is what actually buys
+        parallelism. Providers that are parked or daily-exhausted are skipped
+        here without any network call.
+        """
         async with self._lock:
             count = len(self.providers)
             for offset in range(count):
-                candidate = self.providers[(self._index + offset) % count]
+                index = (self._index + offset) % count
+                candidate = self.providers[index]
                 if candidate.available():
-                    self._index = (self._index + offset) % count
+                    # Advance PAST this one so the next caller gets a different
+                    # account rather than queueing behind this one.
+                    self._index = (index + 1) % count
                     return candidate
             return None
 

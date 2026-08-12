@@ -27,18 +27,29 @@ head2 "1. Dataset progress"
 
 # ------------------------------------------------------------- 2. still alive
 head2 "2. Anything still running?"
-if command -v tasklist >/dev/null 2>&1; then
-  # tasklist has no command-line column, so this is a coarse signal only.
-  n=$(tasklist /FI "IMAGENAME eq python.exe" /NH 2>/dev/null | grep -ci "python.exe" || true)
-  if [ "${n:-0}" -gt 0 ]; then
-    echo "  $n python process(es) alive — generation may still be going."
-    echo "  Confirm with the log tail in section 3 before restarting anything."
-  else
-    echo "  No python processes — generation has stopped."
-    echo "  Resume with:  $PY ml/scripts/run_queue.py --all"
-  fi
+# Must distinguish generation from the backend — they are both "python.exe",
+# and reporting "nothing running" while the queue is alive would have you
+# start a second one on top of it. tasklist cannot show a command line, and
+# its /FI flag is eaten by Git-Bash path conversion anyway (it arrives as
+# C:/Program Files/Git/FI), so query CIM and match on the command line.
+procs=$(powershell -NoProfile -Command \
+  "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | ForEach-Object { \$_.CommandLine }" \
+  2>/dev/null | tr -d '\r')
+
+running() { printf '%s\n' "$procs" | grep -qF "$1"; }
+
+if [ -z "${procs//[[:space:]]/}" ]; then
+  echo "  No python processes at all — nothing is running."
+  echo "  Resume with:  $PY ml/scripts/run_queue.py --all"
 else
-  pgrep -fa "run_queue.py|generate_.*_data.py" 2>/dev/null || echo "  none running"
+  running "run_queue.py"         && echo "  queue        RUNNING  (do not start a second one)" \
+                                 || echo "  queue        stopped  -> $PY ml/scripts/run_queue.py --all"
+  running "watch_and_publish.py" && echo "  watcher      RUNNING  (will publish unattended)" \
+                                 || echo "  watcher      stopped  -> $PY scripts/watch_and_publish.py"
+  running "uvicorn"              && echo "  backend      RUNNING  (port 8091)" \
+                                 || echo "  backend      stopped  (only needed for E2E)"
+  gen=$(printf '%s\n' "$procs" | grep -c "generate_.*_data.py" || true)
+  [ "${gen:-0}" -gt 0 ] && echo "  generator    RUNNING  ($gen persona worker)"
 fi
 
 # ------------------------------------------------------------------- 3. logs
@@ -106,6 +117,14 @@ else
   echo "  no splits yet — run:  $PY ml/scripts/preprocess.py"
 fi
 
+nb=$(ls -1 ml/notebooks/eka_*_lora_kaggle.ipynb 2>/dev/null | wc -l | tr -d ' ')
+echo "  Kaggle notebooks: ${nb:-0}/4 built (ml/notebooks/)"
+if [ "${nb:-0}" -eq 4 ]; then
+  "$PY" scripts/build_kaggle_notebooks.py --check >/dev/null 2>&1 \
+    && echo "    in sync with training/" \
+    || echo "    STALE vs training/ — rerun: $PY scripts/build_kaggle_notebooks.py"
+fi
+
 # ------------------------------------------------------------------- 7. git
 head2 "7. Git"
 if [ -d .git ]; then
@@ -158,8 +177,9 @@ else:
     print("       python ml/scripts/run_queue.py --all")
     print("  3) leave the watcher running so publishing happens unattended:")
     print("       python scripts/watch_and_publish.py")
-    print("  Reminder: 76-216 pairs/hr measured. Re-measure before trusting an ETA.")
-    print("  The Anthropic Batches API does the remainder for ~$4.50 (see TOMORROW.md).")
+    print(f"  At the 2026-08-12 23:00 measured rate (~26 pairs/min, 4 Mistral keys")
+    print(f"  round-robining) that is about {total/26/60:.1f} h. Re-measure before trusting it:")
+    print("       tail -20 ml/datasets/watcher.log   # 2-min samples, no API calls")
 PYEOF
 
 printf '\n  Provider health (one real call each, ~40 tokens):\n'
