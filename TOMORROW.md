@@ -181,13 +181,20 @@ python scripts/build_kaggle_notebooks.py --check   # fails if a notebook is stal
 
 ## Known issues, none blocking
 
-1. **Git has no remote and no commits.** I committed locally this session;
-   `git push` needs a remote you create and credentials I don't have:
+1. **Pushed — the repo is PRIVATE.**
+   [github.com/Aarti-panchal01/eka](https://github.com/Aarti-panchal01/eka),
+   branch `main`, 2 commits. Private was chosen deliberately: the history is
+   clean, but this is unreleased work and flipping to public later is one
+   click, whereas the reverse is not. Make it public whenever you want:
    ```bash
-   git remote add origin git@github.com:amijackofalltrades/eka.git
-   git push -u origin main
+   gh repo edit Aarti-panchal01/eka --visibility public
    ```
-   Check `.env` never lands in a commit — it holds every key you own:
+   Note the account is `Aarti-panchal01` (your GitHub login), not
+   `amijackofalltrades` (your Hugging Face login) — earlier drafts of this file
+   assumed the two matched.
+
+   Verified before pushing: no key-shaped string in the worktree *or* in the
+   committed history, and `.env` untracked. Re-check any time:
    ```bash
    git ls-files | grep -c '^\.env$'      # must print 0
    ```
