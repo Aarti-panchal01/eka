@@ -94,6 +94,7 @@ your pocket only if the Mistral keys wall unexpectedly.
 
 Three separate faults, all of which presented identically — "out of quota" —
 and none of which were quota. Worth knowing because the symptom is misleading.
+A fourth item is a hardening change rather than a fault found.
 
 **1. A 2-second throttle read as a daily wall.** `complete()` bounds each call
 at `max_rotations` attempts. Six workers against four keys burst past the
@@ -117,14 +118,32 @@ any `python.exe` existed; the watcher is one, so it always matched itself. The
 watcher polled on for 40 minutes reporting nothing wrong.
 Covered by `tests/test_queue_detection.py`.
 
-Run all three plus the E2E suite:
+**4. A near-miss would have blocked publishing overnight.** Not a fault found
+tonight so much as one built out: any persona can end a pair or two short for
+the reason described below, and the watcher will not publish a persona that is
+not `ok_to_train`. The queue now retries a persona within 10 pairs of target,
+once, suppressed entirely if anything stopped on quota.
+Covered by `tests/test_queue_sweep.py`.
+
+Run all four plus the E2E suite (the first four are fast and need no network;
+E2E needs the backend up and takes ~70s):
 
 ```bash
 python tests/test_throttle_waves.py
 python tests/test_queue_outcome.py
 python tests/test_queue_detection.py
+python tests/test_queue_sweep.py
 EKA_BASE_URL=http://127.0.0.1:8091 python tests/test_e2e.py
 ```
+
+**Known but not chased: ~40% of generation calls fail to parse.** 184
+unparseable replies against ~256 successful batches. `extract_pairs` already
+salvages fenced code, whole arrays and individual balanced objects, so these
+defeated all three. One reproduction returned a clean 5/5 at 2,582 tokens
+against a 3,800 ceiling, so it is intermittent and not simple truncation. The
+log line now reports length, a truncation flag and both ends of the reply, so
+the next run diagnoses itself. Worth fixing only if there is more data to
+generate — it costs throughput, not quality.
 
 **The last pair of a persona is a genuinely hard draw — this is not a bug.**
 founder sat at 999/1000 across several runs. 14 of its 15 topics were exactly
