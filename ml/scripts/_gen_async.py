@@ -152,6 +152,54 @@ def tpm_for(model: str) -> int:
 # whether to back off for seconds or park the provider for the run.
 
 
+def _drop_trailing_commas(text: str) -> str:
+    """Remove commas that sit immediately before a closing } or ].
+
+    Measured 2026-08-13 02:55, once the unparseable-reply log started printing
+    both ends of the failure: every sampled failure ended
+    `...right now?", } ]` — a trailing comma. That is invalid strict JSON, so
+    json.loads rejects the whole array, and the balanced-object fallback below
+    re-parses the same text and fails identically. One stray comma was
+    discarding entire five-pair batches, which is most of the ~40% of calls
+    that were being thrown away.
+
+    String-aware on purpose. A regex like `,(\\s*[}\\]])` would also rewrite a
+    comma inside a response — "I quit, and then..." — and these are long
+    natural-language strings full of commas.
+    """
+    out = []
+    in_string = escaped = False
+    pending_comma = None  # index in `out` of a comma we have not yet committed
+
+    for char in text:
+        if in_string:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            pending_comma = None
+            in_string = True
+        elif char == ",":
+            out.append(char)
+            pending_comma = len(out) - 1
+            continue
+        elif char in "}]" and pending_comma is not None:
+            out[pending_comma] = ""      # the comma was trailing after all
+            pending_comma = None
+        elif not char.isspace():
+            pending_comma = None
+
+        out.append(char)
+
+    return "".join(out)
+
+
 def extract_pairs(raw: str, want: int) -> List[dict]:
     """Pull as many valid {user, eka_response} objects as possible out of a reply.
 
@@ -183,14 +231,16 @@ def extract_pairs(raw: str, want: int) -> List[dict]:
 
     start, end = text.find("["), text.rfind("]")
     if start != -1 and end > start:
-        try:
-            parsed = json.loads(text[start : end + 1])
+        candidate = text[start : end + 1]
+        for attempt in (candidate, _drop_trailing_commas(candidate)):
+            try:
+                parsed = json.loads(attempt)
+            except json.JSONDecodeError:
+                continue
             if isinstance(parsed, list):
                 good = [o for o in parsed if _shaped(o)]
                 if good:
                     return good[:want]
-        except json.JSONDecodeError:
-            pass
 
     found: List[dict] = []
     depth, obj_start, in_string, escaped = 0, None, False, False
