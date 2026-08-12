@@ -230,8 +230,19 @@ python scripts/watch_and_publish.py --min-frac 0.9
 
 ### 4. Kaggle training
 
-Only after step 3 uploads successfully. Full detail in
-`scripts/start_kaggle_training.md`; the short version:
+Only after step 3 uploads successfully. **Run the pre-flight first — one
+second, and it is the difference between finding a problem now and finding it
+15 minutes into a GPU session, after the 16GB model download:**
+
+```bash
+python scripts/preflight_kaggle.py --hub
+```
+
+Exit 0 means every persona has valid splits, full Llama-3 scaffolding, a
+non-empty val set, nothing over `MAX_SEQ_LEN`, an `ok_to_train` verdict, and
+the files are actually on the Hub where Kaggle will look for them.
+
+Full detail in `scripts/start_kaggle_training.md`; the short version:
 
 **Upload the notebook, don't paste the script.** `ml/notebooks/` now holds one
 `.ipynb` per persona:

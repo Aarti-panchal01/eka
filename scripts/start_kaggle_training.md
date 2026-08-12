@@ -80,6 +80,28 @@ Do this once. It applies to every notebook afterwards.
 
 ---
 
+## Before every session — 1 second, saves a GPU slot
+
+```bash
+python scripts/preflight_kaggle.py --hub
+```
+
+Everything a run needs from this repo is checkable locally. It verifies, in the
+order a training run hits them: the splits exist; every row has a non-empty
+`text` (SFTTrainer is built with `dataset_text_field="text"`); every row carries
+the full Llama-3 scaffolding (a row missing `<|eot_id|>` teaches the model not
+to stop); nothing exceeds `MAX_SEQ_LEN`; the **val split is non-empty**
+(`load_best_model_at_end` on `eval_loss` cannot survive an empty eval set); and
+the quality verdict is `ok_to_train`.
+
+`--hub` also confirms the splits actually reached the dataset repo, which is
+where Kaggle reads them from — passing locally while the Hub is stale is a
+session that dies after the 16GB model download. Exit code is 0 only when every
+checked persona is genuinely ready. On a 30 h/week quota, a wasted session is
+expensive.
+
+---
+
 ## Per-session procedure
 
 Identical for all six. Only the pasted script changes.
