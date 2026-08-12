@@ -14,8 +14,18 @@ single sitting.
 | 6 | `train_classifiers_kaggle.py` | `eka-complexity`, `eka-sentiment` | ~20–40 min |
 
 Each script is fully self-contained — it imports nothing from the Eka project.
-Paste it into a Kaggle notebook cell and run. All nine target HF repos already
-exist and are private.
+All nine target HF repos already exist and are private.
+
+**Prefer the notebooks in `ml/notebooks/`** for runs 1–4: Kaggle → New Notebook
+→ File → Import Notebook. They are generated from these same scripts by
+`scripts/build_kaggle_notebooks.py`, split one cell per section, so a failure
+names the stage it died in and you can re-run just the push-to-Hub cell if a
+3-hour train succeeds and the upload 401s. Pasting the whole `.py` into one
+cell is still fine — same code — you just lose both of those. Runs 5 and 6
+have no notebook yet; paste those.
+
+**Run 5 cannot work yet — its dataset does not exist.** See "Session order"
+below before you spend a GPU slot on it.
 
 ---
 
@@ -123,8 +133,28 @@ split — surfaces there. Sessions 2–4 are then the same run with a different
 - **Session 2 — chanakya.** Same day is fine; you have the weekly quota for it.
 - **Session 3 — gita.**
 - **Session 4 — reflection.**
-- **Sessions 5 and 6 — embeddings and classifiers.** Short. Run both in one
-  sitting whenever convenient; they do not need the persona adapters.
+- **Session 6 — classifiers.** Short, and its data is ready: 
+  `complexity_labeled.jsonl` exists and the sentiment half pulls `go_emotions`
+  straight from the Hub. Run whenever convenient; needs no persona adapter.
+
+- **Session 5 — embeddings. BLOCKED — check this before you open Kaggle.**
+  `train_embeddings_kaggle.py` downloads `embedding_triplets.jsonl` from the
+  dataset repo, and **that file has never been generated**. It is not in
+  `ml/datasets/`, so `upload_to_hf.py` skips it (printing `⏭ not found`) and
+  the session fails after the base-model download. Build it first:
+
+  ```bash
+  python ml/scripts/generate_embedding_triplets.py     # default --target 6000
+  python ml/scripts/upload_to_hf.py                    # re-push the repo
+  ```
+
+  Two things to know before starting it. It is **Groq-only**: it calls
+  `get_groq_client()` directly rather than going through the provider rotator,
+  so the four Mistral keys cannot help, and Groq's ~100k tokens/day is the
+  binding limit — 6,000 paraphrase calls will not fit in one day. It is
+  resume-safe, so run it across days or pass a smaller `--target`.
+
+  Nothing else depends on it. Sessions 1–4 and 6 are unaffected.
 
 You can have two Kaggle sessions running concurrently, so 1+2 and 3+4 can
 overlap. Do not overlap on the first attempt — debug serially, then parallelise.
