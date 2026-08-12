@@ -87,17 +87,36 @@ def main() -> int:
     else:
         print("  ok  999/1000 retried once")
 
-    # 2. A persona that lost its providers must NOT be retried — it would hit
-    #    the same wall and burn quota proving it.
+    # 2. A persona well short of target must ALSO be retried, and bounded.
+    #    An earlier version of this test asserted the opposite, because the
+    #    sweep was sized on founder's 1-pair case before chanakya finished.
+    #    chanakya then came in at 529/600 — 71 short, from a 0.42 rejection
+    #    rate with 0.34 regeneration recovery, with an otherwise spotless
+    #    quality report. A 10-pair gate would have skipped the exact case the
+    #    sweep exists to rescue.
     retried = drive(
         first_pass={"founder": "complete", "chanakya": "short",
                     "gita": "complete", "reflection": "complete"},
-        on_disk={"founder": 1000, "chanakya": 300, "gita": 600, "reflection": 1000},
+        on_disk={"founder": 1000, "chanakya": 529, "gita": 600, "reflection": 1000},
     )
-    if retried:
-        failures.append(f"far-short: expected no retry, got {retried}")
+    if retried != ["chanakya"] * rq.MAX_TOPUP_SWEEPS:
+        failures.append(
+            f"far-short: expected {rq.MAX_TOPUP_SWEEPS} bounded retries, got {retried}"
+        )
     else:
-        print("  ok  300/600 not retried (lost providers, not a hard draw)")
+        print(f"  ok  529/600 retried, bounded at {rq.MAX_TOPUP_SWEEPS} sweeps")
+
+    # 3. A sweep that closes the gap stops early instead of using its budget.
+    retried = drive(
+        first_pass={"founder": "complete", "chanakya": "short",
+                    "gita": "complete", "reflection": "complete"},
+        on_disk={"founder": 1000, "chanakya": 599, "gita": 600, "reflection": 1000},
+        second_pass_gain=1,          # one pass reaches 600
+    )
+    if retried != ["chanakya"]:
+        failures.append(f"convergence: expected one retry then stop, got {retried}")
+    else:
+        print("  ok  gap closed on the first sweep, remaining budget unused")
 
     # 3. A genuine quota stop suppresses the sweep entirely, even for a
     #    persona that happens to be one short.
@@ -111,8 +130,8 @@ def main() -> int:
     else:
         print("  ok  quota stop suppresses the sweep")
 
-    # 4. Two near-misses each get one attempt, and the sweep does not loop even
-    #    when the retry fails to close the gap.
+    # 5. A pass that gains nothing stops the loop immediately. Without this,
+    #    a genuinely stuck persona burns every remaining sweep proving it.
     retried = drive(
         first_pass={"founder": "short", "chanakya": "short",
                     "gita": "complete", "reflection": "complete"},
@@ -120,9 +139,11 @@ def main() -> int:
         second_pass_gain=0,          # retry closes nothing
     )
     if sorted(retried) != ["chanakya", "founder"]:
-        failures.append(f"two near-misses: expected one attempt each, got {retried}")
+        failures.append(
+            f"no-progress: expected one pass over both then stop, got {retried}"
+        )
     else:
-        print("  ok  two near-misses, one attempt each, no loop")
+        print("  ok  a sweep that gains nothing stops the loop")
 
     print()
     if failures:

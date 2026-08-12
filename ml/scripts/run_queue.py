@@ -78,12 +78,12 @@ FOUNDER = ("founder", "generate_founder_data.py", "founder_dataset.json")
 # problem — never started at all.
 QUOTA_MARKERS = ("Every configured provider failed or is out of quota for today",)
 
-# How far short a persona may end and still be worth one extra attempt at the
-# end of the queue. Sized for the dedup-saturation case (a handful of pairs),
-# not for a run that stopped early — a persona 300 short did not lose a hard
-# draw, it lost its providers, and re-running it inside the same session would
-# just hit the same wall.
-SWEEP_MAX_SHORTFALL = 10
+# How many extra passes to make over personas that finished short. Each pass
+# regenerates only the remaining gap, so the cost falls off fast: chanakya's
+# first pass spent 353 requests to place 529 pairs, and a top-up for the last
+# 71 costs a fraction of that. Three is enough for a ~12% attrition rate to
+# converge, and the loop exits early the moment a pass gains nothing.
+MAX_TOPUP_SWEEPS = 3
 
 
 def target_for(module: str) -> int:
@@ -264,42 +264,60 @@ def main() -> int:
             )
             break
 
-    # SECOND SWEEP for personas that ended a few pairs short.
+    # TOP-UP SWEEPS for personas that ended short.
     #
-    # This is the founder-999 case, and it is structural rather than rare: as a
-    # topic fills up, each remaining pair has to be about that topic AND unlike
-    # every pair already there, so the dedup gate rejects the last one or two
-    # far more often than the first hundred. founder sat at 999/1000 across
-    # several runs tonight and then cleared on a fresh attempt with nothing
-    # changed.
+    # A generator plans enough batches to cover its shortfall, then loses some
+    # to the quality gates: chanakya measured a 0.42 rejection rate with only
+    # 0.34 of those recovered by regeneration, and finished 529/600. founder
+    # finished 999/1000. Neither was a quota stop and neither was a quality
+    # failure — chanakya's report is otherwise spotless (marker 1.0, zero near
+    # duplicates, 99.6% ends-with-question). It is pure attrition, and a fresh
+    # run generates the remaining gap from scratch, which is how founder went
+    # 999 -> 1000 on one extra call.
     #
     # It matters because the shortfall is a hard block downstream: the quality
     # report treats ANY shortfall as blocking, and watch_and_publish refuses to
-    # publish a persona that is not ok_to_train. So one missing pair at 03:00
-    # means nothing is on the Hub at 07:00. A single extra attempt per persona
-    # is cheap — one batch call — and turns the common case into a non-event.
+    # publish a persona that is not ok_to_train. So personas left short at 03:00
+    # mean nothing on the Hub at 07:00.
     #
-    # Deliberately one sweep, not a loop: if a fresh attempt does not close the
-    # gap, something is actually wrong and grinding on it would burn quota to
-    # no purpose.
-    if not any(v in ("quota", "error") for v in results.values()):
+    # AN EARLIER VERSION OF THIS ONLY RETRIED PERSONAS WITHIN 10 PAIRS OF
+    # TARGET, sized on founder's 1-pair case before chanakya had finished. The
+    # real attrition is ~12%, so that gate would have skipped every persona it
+    # was written to rescue. Retry any short persona instead, and keep going
+    # while passes are still closing the gap — bounded, because a pass that
+    # gains nothing means something is actually wrong and grinding burns quota
+    # to no purpose.
+    for sweep in range(1, MAX_TOPUP_SWEEPS + 1):
+        if any(v in ("quota", "error") for v in results.values()):
+            break
         stragglers = [
             (name, module, dataset)
             for name, module, dataset in queue
-            if results.get(name) == "short"
-            and count_on_disk(dataset) >= target_for(module) - SWEEP_MAX_SHORTFALL
+            if count_on_disk(dataset) < target_for(module)
         ]
+        if not stragglers:
+            break
+
+        gained = 0
         for name, module, dataset in stragglers:
-            have, want = count_on_disk(dataset), target_for(module)
+            before, want = count_on_disk(dataset), target_for(module)
             print(
                 f"\n{'=' * 64}\n"
-                f"  SECOND SWEEP: {name} finished {want - have} short "
-                f"({have}/{want}).\n"
-                f"  The last pairs of a persona are the hardest draw — retrying "
-                f"once.\n"
+                f"  TOP-UP SWEEP {sweep}/{MAX_TOPUP_SWEEPS}: {name} is "
+                f"{want - before} short ({before}/{want}).\n"
+                f"  Generating the gap fresh — the first pass loses pairs to the\n"
+                f"  gates and regeneration only recovers about a third of them.\n"
                 f"{'=' * 64}"
             )
             results[name] = run_one(name, module, dataset)
+            gained += count_on_disk(dataset) - before
+
+        if gained == 0:
+            print(
+                f"\n  Sweep {sweep} added no pairs — stopping rather than "
+                f"burning quota on a gap that is not closing."
+            )
+            break
 
     print(f"\n{'=' * 64}\n  QUEUE SUMMARY\n{'=' * 64}")
     for name, _module, dataset in ([FOUNDER] + QUEUE):
