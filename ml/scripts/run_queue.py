@@ -59,17 +59,24 @@ QUEUE = [
 ]
 FOUNDER = ("founder", "generate_founder_data.py", "founder_dataset.json")
 
-# Phrases the generator prints when it stops because a provider ran out rather
-# than because it finished. Matching on these keeps "out of quota" distinct from
-# "this persona is broken" — the first means come back tomorrow, the second
-# means stop and look.
-QUOTA_MARKERS = (
-    "out of quota for today",
-    "every configured provider is exhausted",
-    "daily-quota wall",
-    "reached its tracked daily limit",
-    "DAILY quota wall",
-)
+# The ONE phrase the generator prints when it gives up because nothing is left
+# to call. Matching it means "come back tomorrow"; anything else that ends a run
+# short means "look at it", and either way the rest of the queue should proceed.
+#
+# THIS LIST USED TO BE FIVE PHRASES AND FOUR OF THEM WERE ROUTINE CHATTER.
+# "reached its tracked daily limit" and "DAILY quota wall" are printed whenever
+# ANY SINGLE provider parks — which is the normal, healthy path: groq,
+# openrouter and google wall early most days and the Mistral keys carry the
+# run. Because the check is a substring scan over the whole captured log, one
+# such line anywhere plus a shortfall of even one pair classified the run as
+# "quota" and broke out of the queue.
+#
+# Measured 2026-08-12 23:47: founder finished its planned work at 999/1000 with
+# a single pair failing regeneration, all four Mistral keys healthy (46/42/34/28
+# successful calls). It was classified "quota" and stopped the queue, so
+# chanakya, gita and reflection — 2,200 pairs, none of which share founder's
+# problem — never started at all.
+QUOTA_MARKERS = ("Every configured provider failed or is out of quota for today",)
 
 
 def target_for(module: str) -> int:
@@ -183,13 +190,24 @@ def run_one(name: str, module: str, dataset: str) -> str:
             captured.append(line)
         process.wait()
 
-    blob = "".join(captured)
-    have = count_on_disk(dataset)
-    if any(marker in blob for marker in QUOTA_MARKERS) and have < want:
-        return "quota"
+    return classify(
+        "".join(captured), count_on_disk(dataset), want, process.returncode
+    )
+
+
+def classify(blob: str, have: int, want: int, returncode: int) -> str:
+    """Decide what a finished generator run means for the rest of the queue.
+
+    Only "quota" and "error" stop the queue; "short" and "complete" let it move
+    on. Kept separate from run_one so it can be tested without spawning a
+    subprocess — see tests/test_queue_outcome.py, which exists because the
+    substring scan below silently swallowed three personas.
+    """
     if have >= want:
         return "complete"
-    if process.returncode not in (0, 2):
+    if any(marker in blob for marker in QUOTA_MARKERS):
+        return "quota"
+    if returncode not in (0, 2):
         return "error"
     return "short"
 

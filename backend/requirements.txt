@@ -7,14 +7,18 @@ alembic==1.13.1
 pydantic==2.7.1
 pydantic-settings==2.3.0
 httpx==0.27.0
-python-multipart==0.0.9
+python-multipart==0.0.32
 qdrant-client==1.9.1
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 numpy==1.26.4
 huggingface-hub==0.23.2
 groq==0.9.0
-lightgbm==4.3.0
-PyPDF2==3.0.1
+lightgbm==4.6.0
+# pypdf, not PyPDF2. PyPDF2 3.0.1 was its final release and it is deprecated
+# upstream in favour of pypdf, so its open advisory reports "no patched version
+# available" and never will — the fix IS the migration. Same PdfReader API, so
+# backend/api/routes/memory.py needed only its import changed.
+pypdf==6.14.2
 
 # --- Optional / heavier extras -------------------------------------------
 # Uncomment ONLY if you want the classifiers to run in-process on Render.

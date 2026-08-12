@@ -191,12 +191,19 @@ def _extract_text(raw: bytes) -> str:
 
 def _extract_pdf(raw: bytes) -> str:
     try:
-        from PyPDF2 import PdfReader
+        from pypdf import PdfReader
     except ImportError:
-        raise HTTPException(
-            status_code=501,
-            detail="PDF support needs PyPDF2 — pip install PyPDF2==3.0.1",
-        )
+        try:
+            # PyPDF2 is the deprecated predecessor with an identical PdfReader
+            # API. Accepted only so an environment that has not reinstalled
+            # from requirements.txt keeps working; it carries an unfixable
+            # advisory, so requirements.txt asks for pypdf.
+            from PyPDF2 import PdfReader
+        except ImportError:
+            raise HTTPException(
+                status_code=501,
+                detail="PDF support needs pypdf — pip install pypdf==6.14.2",
+            )
     try:
         reader = PdfReader(io.BytesIO(raw))
         return "\n\n".join((page.extract_text() or "") for page in reader.pages)
