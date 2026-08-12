@@ -32,6 +32,7 @@ multi-hour Kaggle run that bakes the defects into weights.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -102,17 +103,43 @@ def snapshot(min_frac: float):
 
 
 def queue_running() -> bool:
-    """True if a generator or the queue is still alive (Windows-safe)."""
+    """True if the queue or a persona generator is still alive.
+
+    THIS USED TO ASK tasklist FOR "any python.exe", WHICH IS ALWAYS TRUE —
+    this watcher is itself a python.exe, so the check matched its own process
+    and the "queue stopped early" branch below could never fire. Measured
+    2026-08-12 23:20: the queue died, this watcher polled on for 40 minutes
+    reporting nothing wrong, and the operator's morning signal would have been
+    "watcher RUNNING" with a dataset that stopped growing hours earlier.
+
+    tasklist cannot show a command line at all, so no filter on it can tell
+    those processes apart. CIM can. Match the actual scripts, and exclude this
+    one by PID so a rename can never reintroduce the self-match.
+    """
+    query = (
+        "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+        f"Where-Object {{ $_.ProcessId -ne {os.getpid()} }} | "
+        "ForEach-Object { $_.CommandLine }"
+    )
     try:
         out = subprocess.run(
-            ["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=30
+            ["powershell", "-NoProfile", "-Command", query],
+            capture_output=True,
+            text=True,
+            timeout=60,
         ).stdout
     except Exception:
-        return True  # can't tell — assume alive rather than publishing early
-    # tasklist doesn't show command lines, so fall back to "any python running".
-    # Deliberately conservative: a false "still running" only delays publishing,
-    # while a false "finished" would publish a partial dataset.
-    return "python.exe" in out.lower()
+        # Can't tell — assume alive. A false "still running" only delays
+        # publishing; a false "finished" would publish a partial dataset.
+        return True
+    if not out.strip():
+        return False
+    return any(
+        marker in out
+        for marker in ("run_queue.py", "generate_founder_data.py",
+                       "generate_chanakya_data.py", "generate_gita_data.py",
+                       "generate_reflection_data.py")
+    )
 
 
 def run(label: str, args: list) -> bool:
@@ -163,15 +190,18 @@ def kaggle_instructions() -> None:
 Datasets are on the Hub. Full detail: scripts/start_kaggle_training.md
 
 Per session (four persona runs, ~2.5-3.5h each on one T4):
-  1. kaggle.com/code -> New Notebook, name it for the run
+  1. kaggle.com/code -> New Notebook -> File -> Import Notebook, upload:
+       ml/notebooks/eka_founder_lora_kaggle.ipynb
+     (One cell per stage, so a failure names the stage it died in and you can
+     re-run just the push-to-Hub cell if a 3h train succeeds and upload 401s.
+     Pasting training/train_founder_lora_kaggle.py into one cell also works —
+     same code — you just lose both of those.)
   2. Settings: Accelerator = GPU T4 x2, Internet = On
   3. Add-ons -> Secrets: HF_TOKEN (write), HF_USERNAME, WANDB_API_KEY
      TICK the checkbox next to each one to attach it
   4. Accept the Llama 3 license as amijackofalltrades:
      huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct
-  5. Paste the whole file into one cell:
-       training/train_founder_lora_kaggle.py
-  6. Save Version -> "Save & Run All (Commit)"   <- background execution.
+  5. Save Version -> "Save & Run All (Commit)"   <- background execution.
      The interactive Run All button dies when you close the tab.
   7. Verify the adapter landed before starting the next run:
        python -c "from huggingface_hub import HfApi; import os; \\
