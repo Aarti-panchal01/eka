@@ -44,18 +44,28 @@ That is **~1,600 pairs/hr**, against the **76–216 pairs/hr** this file claimed
 hour earlier. The old number was measured when Mistral was a single key and the
 only live provider. Do not plan against the old figure.
 
-State at 23:57:
+State at 00:07:
 
 | persona | on disk | target | verdict |
 |---|---:|---:|---|
 | founder | **1000** | 1000 | **ok_to_train** |
-| chanakya | ~25 | 600 | generating |
+| chanakya | 137 | 600 | generating |
 | gita | 0 | 600 | queued |
 | reflection | 0 | 1000 | queued |
 
-~2,175 pairs remain → **~1.4 h** at the measured rate. Queue and watcher are
-both running, so if they survive the night this finishes before you wake and
-the watcher publishes it unattended.
+**Rate is per-persona, and founder was the fast one.** Measured over a clean
+4-minute window at 00:03, chanakya runs **13.2 pairs/min** against founder's
+26. Nothing is wrong: chanakya's gates accept 51% of generated pairs where
+founder's accept 71%, so it burns roughly twice the calls per kept pair. That
+is the gate working, not a fault.
+
+~2,060 pairs remain → **~2.6 h**, projecting a finish around **02:45**. Treat
+that as a floor: reflection pays an LLM judge call per surviving pair and will
+be slower than chanakya, so 3–4 h is the honest range. Queue and watcher are
+both running, so this should finish and publish unattended overnight.
+
+Do not re-derive an ETA from founder's 26/min — that number does not
+generalise across personas.
 
 **Three bugs stopped the queue tonight before any of this worked.** All three
 are fixed and covered by tests; they are described under "What broke" below.
