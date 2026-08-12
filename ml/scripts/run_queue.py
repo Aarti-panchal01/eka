@@ -187,6 +187,14 @@ def run_one(name: str, module: str, dataset: str) -> str:
             sys.stdout.write(line)
             sys.stdout.flush()
             log.write(line)
+            # Flush this too. Without it the per-persona log stays empty until
+            # the persona FINISHES and the handle closes, so the one file that
+            # answers "what is the running persona doing right now" is empty
+            # for exactly as long as that question is worth asking. Measured
+            # 2026-08-13 00:02: chanakya_run.log was 0 bytes after 10 minutes
+            # and ~44 completed batches. morning_checklist.sh section 3 reads
+            # these files.
+            log.flush()
             captured.append(line)
         process.wait()
 
