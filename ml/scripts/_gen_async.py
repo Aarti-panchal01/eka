@@ -400,8 +400,26 @@ async def _call(
                 # rather than in spikes that trigger avoidable 429s.
                 await asyncio.sleep(INTER_BATCH_SLEEP)
             return pairs, provider
-        print(f"  ! unparseable reply for {label} from {provider} "
-              f"(attempt {attempt + 1})")
+        # Say WHY, not just that it happened. These fire often — 184 times
+        # against ~256 successful batches on 2026-08-12 — and the bare message
+        # gave nothing to act on: a reply truncated by max_tokens, a chatty
+        # preamble that hides the array, and a refusal all looked identical in
+        # the log. extract_pairs already salvages fenced code, whole arrays and
+        # individual balanced objects, so anything reaching here defeated all
+        # three, and the shape of the text is the only clue left.
+        preview = " ".join((text or "").split())
+        # Unbalanced braces, not "does it end in punctuation" — a refusal and a
+        # chatty preamble both end in a full stop and neither is truncated.
+        # An unclosed object is the one shape that actually means the reply was
+        # cut off, and it is the one that says raise max_tokens.
+        looks_truncated = preview.count("{") > preview.count("}")
+        print(
+            f"  ! unparseable reply for {label} from {provider} "
+            f"(attempt {attempt + 1}) — {len(text or '')} chars"
+            f"{', looks TRUNCATED' if looks_truncated else ''}"
+            f" | starts: {preview[:110]!r}"
+            f" | ends: {preview[-70:]!r}"
+        )
 
     print(f"  ✗ gave up on {label}")
     return [], None
