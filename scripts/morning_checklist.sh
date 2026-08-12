@@ -177,8 +177,16 @@ else:
     print("       python ml/scripts/run_queue.py --all")
     print("  3) leave the watcher running so publishing happens unattended:")
     print("       python scripts/watch_and_publish.py")
-    print(f"  At the 2026-08-12 23:00 measured rate (~26 pairs/min, 4 Mistral keys")
-    print(f"  round-robining) that is about {total/26/60:.1f} h. Re-measure before trusting it:")
+    # Rate is per-persona, not global: founder measured 26 pairs/min and
+    # chanakya 13, because their gates accept 71% and 51% of generated pairs
+    # respectively. Quoting one number for all four personas is how the
+    # earlier "1.4h" estimate came out roughly half of reality, so bound it
+    # instead of picking a side.
+    # ASCII only in this block: it runs through a bare `python -` heredoc whose
+    # stdout is the operator's console, and a stock Windows console is cp1252.
+    print(f"  ETA {total/26/60:.1f}-{total/13/60:.1f} h, from rates measured 2026-08-12")
+    print(f"  (founder 26 pairs/min, chanakya 13; reflection pays an LLM judge")
+    print(f"  call per pair and will be slower again). Re-measure, don't trust it:")
     print("       tail -20 ml/datasets/watcher.log   # 2-min samples, no API calls")
 PYEOF
 
