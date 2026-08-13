@@ -59,9 +59,9 @@ than one file you have to remember to edit before each run.
 # In a notebook, put this in the first cell prefixed with %%capture
 # ==============================================================================
 # %%capture
-# !pip install -q "numpy<2.0" transformers==4.41.0 peft==0.11.1 trl==0.8.6 \
+# !pip install -q transformers==4.41.0 peft==0.11.1 trl==0.8.6 \
 #     datasets==2.19.1 accelerate==0.30.0 bitsandbytes==0.43.1 \
-#     wandb==0.16.6 huggingface-hub==0.23.2
+#     huggingface-hub==0.23.2
 
 import os
 import subprocess
@@ -71,27 +71,30 @@ import sys
 def _pip_install() -> None:
     """Idempotent install so the script works as a plain .py run too."""
     packages = [
-        # numpy<2 leads the list because it is a constraint the rest have to
-        # resolve against, not a preference. Kaggle's image ships NumPy 2.x on
-        # Python 3.12; wandb 0.17.0 still reaches for np.float_, removed in
-        # NumPy 2.0, and the resulting AttributeError killed the founder run on
-        # 2026-08-13 before a single training step.
+        # DO NOT PIN NUMPY HERE. Kaggle's image is built around NumPy 2 —
+        # pandas, pyarrow and torch all ship compiled against it — so a
+        # numpy<2.0 pin cannot fix the image, it can only break it. pip
+        # downgrades the on-disk build while the kernel already holds 2.x in
+        # memory, and the next C extension loaded dies with:
         #
-        # It must be in THIS pip call, not an earlier separate one — installing
-        # the packages below afterwards would pull NumPy 2 straight back up.
-        # Everything else here is pinned to mid-2024 releases built against
-        # NumPy 1.x anyway, so this is the combination they expect.
-        "numpy<2.0",
+        #     ValueError: numpy.dtype size changed, may indicate binary
+        #     incompatibility. Expected 96 from C header, got 88 from PyObject
+        #
+        # Measured 2026-08-13: the pin installed cleanly, then killed the run
+        # one cell later at `from datasets import load_dataset`, which pulls in
+        # pandas and therefore numpy.random.mtrand.
+        #
+        # wandb is deliberately absent too. Kaggle's preinstalled wandb reaches
+        # for np.float_ under Kaggle's own NumPy 2 and raises on import, and
+        # every wandb old enough to avoid that expects NumPy 1 — which puts us
+        # straight back in the paragraph above. Tracking is optional; SECTION 2
+        # skips it and the run keeps its GPU session.
         "transformers==4.41.0",
         "peft==0.11.1",
         "trl==0.8.6",
         "datasets==2.19.1",
         "accelerate==0.30.0",
         "bitsandbytes==0.43.1",
-        # Belt and braces. The numpy pin above is what actually guarantees
-        # np.float_ exists; this keeps wandb on a release from the same era
-        # as everything else.
-        "wandb==0.16.6",
         "huggingface-hub==0.23.2",
     ]
     subprocess.run(
@@ -102,30 +105,14 @@ def _pip_install() -> None:
 if os.environ.get("EKA_SKIP_INSTALL") != "1":
     _pip_install()
 
-# Report which NumPy actually won, in 30 seconds, rather than finding out from
-# a traceback 15 minutes in after the model download. A downgrade only affects
-# modules not yet imported in THIS process, so if anything pulled NumPy 2 in
-# before this ran, pip can report success and the import below still be 2.x.
-#
-# This warns rather than exits. Under NumPy 2 the only thing here that actually
-# breaks is wandb (np.float_), which is optional and which SECTION 2 disables
-# on its own — so stopping the run would cost a GPU session to protect a
-# progress chart. Nothing else in the pinned set touches the removed aliases.
+# NumPy 2 is EXPECTED here, not a problem to be fixed. See the note in
+# _pip_install above: downgrading it breaks Kaggle's compiled stack. This just
+# records which version the session actually got, so a future failure can be
+# read against it, and flags that tracking will be off.
 import numpy as _np  # noqa: E402
 
 NUMPY_2 = int(_np.__version__.split(".")[0]) >= 2
-if NUMPY_2:
-    print(
-        f"! numpy {_np.__version__} is live — the <2.0 pin did not take effect.\n"
-        "  Either the install cell failed or numpy was imported before it.\n"
-        "  Continuing without experiment tracking; training is unaffected.\n"
-        "\n"
-        "  Do NOT restart the kernel to force the downgrade. A restart inside a\n"
-        "  'Save & Run All (Commit)' run ends the session, and on the way back\n"
-        "  up this cell would simply restart it again."
-    )
-else:
-    print(f"✓ numpy {_np.__version__}")
+print(f"✓ numpy {_np.__version__}" + ("  (wandb will be skipped — see below)" if NUMPY_2 else ""))
 
 
 # ==============================================================================
@@ -180,6 +167,8 @@ if not SECRETS.get("WANDB_API_KEY"):
 elif NUMPY_2:
     # Known-bad rather than discovered-bad: wandb reaches for np.float_, which
     # NumPy 2.0 removed. Skipping the import beats catching its traceback.
+    # This is the accepted cost of leaving Kaggle's NumPy 2 alone — the
+    # alternative broke the whole session, not just the charts.
     print(
         "! skipping wandb — numpy 2 is live in this session and wandb still "
         "uses np.float_. Training runs, without experiment tracking."
