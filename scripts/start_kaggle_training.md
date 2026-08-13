@@ -159,24 +159,35 @@ split — surfaces there. Sessions 2–4 are then the same run with a different
   `complexity_labeled.jsonl` exists and the sentiment half pulls `go_emotions`
   straight from the Hub. Run whenever convenient; needs no persona adapter.
 
-- **Session 5 — embeddings. BLOCKED — check this before you open Kaggle.**
-  `train_embeddings_kaggle.py` downloads `embedding_triplets.jsonl` from the
-  dataset repo, and **that file has never been generated**. It is not in
-  `ml/datasets/`, so `upload_to_hf.py` skips it (printing `⏭ not found`) and
-  the session fails after the base-model download. Build it first:
+- **Session 5 — embeddings.** `train_embeddings_kaggle.py` downloads
+  `embedding_triplets.jsonl`, which did not exist until 2026-08-13. Generated
+  and pushed with:
 
   ```bash
-  python ml/scripts/generate_embedding_triplets.py     # default --target 6000
+  GEN_SLEEP=2.5 python ml/scripts/generate_embedding_triplets.py --target 6000
   python ml/scripts/upload_to_hf.py                    # re-push the repo
   ```
 
-  Two things to know before starting it. It is **Groq-only**: it calls
-  `get_groq_client()` directly rather than going through the provider rotator,
-  so the four Mistral keys cannot help, and Groq's ~100k tokens/day is the
-  binding limit — 6,000 paraphrase calls will not fit in one day. It is
-  resume-safe, so run it across days or pass a smaller `--target`.
+  **It costs far less than an earlier draft of this file claimed.** That draft
+  said 6,000 paraphrase calls could not fit one day of Groq quota and told you
+  to spread it over days. Both halves were wrong:
 
-  Nothing else depends on it. Sessions 1–4 and 6 are unaffected.
+  - Only **round 1** calls the API — one paraphrase per anchor, 3,200 anchors.
+    Round 2 onward builds harder positives by pairing an anchor with a
+    different message from its own mode, which needs no API call at all. So
+    6,000 triplets cost ~3,200 calls, not 6,000.
+  - It runs on `FAST_MODEL`, which resolves to `llama-3.1-8b-instant`, not the
+    70B generation model. The 8B allows ~14,400 requests/day and keeps
+    answering while the 70B is daily-walled, because Groq meters per model.
+    3,200 against 14,400 is comfortable.
+
+  The default `SLEEP_BETWEEN_CALLS` is ~14.7s, sized for 70B generation calls
+  of ~3,800 tokens. A paraphrase is ~200 tokens, so that pacing would take 13
+  hours for no reason. `GEN_SLEEP=2.5` holds ~24 req/min, safely under Groq's
+  ~30 RPM, and finishes round 1 in about 2.5 hours with no 429s observed.
+
+  It is resume-safe: it reads the existing file and continues, so an
+  interrupted run costs nothing. Sessions 1–4 and 6 never depended on it.
 
 You can have two Kaggle sessions running concurrently, so 1+2 and 3+4 can
 overlap. Do not overlap on the first attempt — debug serially, then parallelise.

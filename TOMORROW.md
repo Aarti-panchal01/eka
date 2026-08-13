@@ -16,6 +16,17 @@ unattended, exactly as designed.
 `marker=1.0` and `unique=True` on all four. Live at
 `huggingface.co/datasets/amijackofalltrades/eka-datasets` (private).
 
+**Embedding triplets are generating** (started 06:46, ~2.5 h for round 1).
+They were the one thing blocking Kaggle **session 5**; sessions 1–4 and 6
+never needed them and are ready now. When it finishes, re-push and confirm:
+
+```bash
+python ml/scripts/upload_to_hf.py
+python scripts/preflight_kaggle.py --hub
+```
+
+Progress without touching the API: `grep -c . ml/datasets/embedding_triplets.jsonl`
+
 ---
 
 ## 60-second version
