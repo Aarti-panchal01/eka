@@ -7,7 +7,9 @@ notebook (or upload as a script) and run top to bottom.
 
 BEFORE YOU RUN
 --------------
-1. Kaggle -> Settings -> Accelerator = GPU T4 x1 (7B in 4-bit fits comfortably)
+1. Kaggle -> Settings -> Accelerator = GPU T4 x2  <- NOT the single-GPU
+   option. Kaggle offers 'GPU T4 x2' or 'GPU P100'; there is no T4 x1, and
+   the P100 is sm_60, which this image's torch no longer supports.
 2. Kaggle -> Settings -> Internet = ON
 3. Kaggle -> Add-ons -> Secrets, add all three:
        HF_TOKEN        (write permission)
@@ -43,7 +45,7 @@ than one file you have to remember to edit before each run.
 # 3. Add: WANDB_API_KEY = your_wandb_key
 # 4. Add: HF_USERNAME   = amijackofalltrades
 # 5. Enable "Internet" in Settings (right-hand panel)
-# 6. Enable "GPU T4 x1" in Settings  (Accelerator)
+# 6. Enable "GPU T4 x2" in Settings  (Accelerator) — never GPU P100
 # 7. Enable "Background Execution"  <- CRITICAL: keeps training after you
 #    close the browser. Without it the session dies when the tab closes.
 #    (In the current Kaggle UI this is "Save Version -> Save & Run All (Commit)".)
@@ -59,9 +61,7 @@ than one file you have to remember to edit before each run.
 # In a notebook, put this in the first cell prefixed with %%capture
 # ==============================================================================
 # %%capture
-# !pip install -q transformers==4.41.0 peft==0.11.1 trl==0.8.6 \
-#     datasets==2.19.1 accelerate==0.30.0 bitsandbytes==0.43.1 \
-#     huggingface-hub==0.23.2
+# !pip install -q trl bitsandbytes
 
 import os
 import subprocess
@@ -89,13 +89,17 @@ def _pip_install() -> None:
         # every wandb old enough to avoid that expects NumPy 1 — which puts us
         # straight back in the paragraph above. Tracking is optional; SECTION 2
         # skips it and the run keeps its GPU session.
-        "transformers==4.41.0",
-        "peft==0.11.1",
-        "trl==0.8.6",
-        "datasets==2.19.1",
-        "accelerate==0.30.0",
-        "bitsandbytes==0.43.1",
-        "huggingface-hub==0.23.2",
+        # Probed live on 2026-08-13: the image carries transformers 5.0.0,
+        # datasets 5.0.0, peft 0.19.1, accelerate 1.13.0, torch 2.10.0+cu128,
+        # triton 3.6.0, numpy 2.0.2. trl and bitsandbytes are the only two
+        # things missing, and unpinned they resolve to trl 1.10.0 /
+        # bitsandbytes 0.50.0, which import cleanly against that image.
+        #
+        # bitsandbytes==0.43.1 was a mid-2024 build that imports triton.ops,
+        # removed in Triton 3.x — it killed the founder run on 2026-08-13 with
+        # "No module named 'triton.ops'". Pinning against this image loses.
+        "trl",
+        "bitsandbytes",
     ]
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "-q", *packages], check=False
@@ -226,11 +230,28 @@ import torch  # noqa: E402
 
 if not torch.cuda.is_available():
     raise SystemExit(
-        "No GPU detected. Kaggle -> Settings -> Accelerator -> GPU T4 x1.\n"
+        "No GPU detected. Kaggle -> Settings -> Accelerator -> GPU T4 x2.\n"
         "(4-bit QLoRA on a 7B model is not viable on CPU.)"
     )
 
 GPU_NAME = torch.cuda.get_device_name(0)
+
+# Fail in five seconds on the wrong GPU rather than ten minutes in, mid-download.
+# Kaggle's menu is "GPU T4 x2" or "GPU P100" — there is no T4 x1, so asking for
+# a single GPU gets a P100 (sm_60) against a torch that needs 7.0+. Nothing
+# complains until bitsandbytes' 4-bit kernel hits a symbol never compiled for
+# sm_60, prints "Error named symbol not found ... ops.cu" and takes the
+# interpreter with it. Papermill reports that as DeadKernelError, which reads
+# like an OOM. Measured twice on 2026-08-13.
+CAPABILITY = torch.cuda.get_device_capability(0)
+if CAPABILITY < (7, 0):
+    raise SystemExit(
+        f"{GPU_NAME} is compute capability {CAPABILITY[0]}.{CAPABILITY[1]}; this "
+        f"image's torch needs 7.0+.\n"
+        "Kaggle -> Settings -> Accelerator -> GPU T4 x2 (NOT GPU P100), then "
+        "re-run.\n"
+        "The x2 also raises the RAM ceiling, which the 4-bit load wants anyway."
+    )
 # Turing (T4) has no bfloat16 support. Ampere+ (A100/L4) does. Picking the
 # wrong one here is the most common cause of "RuntimeError: expected scalar
 # type" or silent NaN losses on Kaggle.
@@ -303,7 +324,6 @@ from transformers import (  # noqa: E402
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    TrainingArguments,
 )
 
 bnb_config = BitsAndBytesConfig(
@@ -371,9 +391,14 @@ model.print_trainable_parameters()  # expect ~40M trainable / ~0.5% of 7B
 # ==============================================================================
 # SECTION 8 — TRAIN
 # ==============================================================================
-from trl import SFTTrainer  # noqa: E402
+from trl import SFTConfig, SFTTrainer  # noqa: E402
 
-training_args = TrainingArguments(
+# SFTConfig replaces TrainingArguments and absorbs what used to be passed to
+# SFTTrainer directly. In trl 1.x, dataset_text_field / packing / max_length
+# all live on the config, `max_seq_length` no longer exists (it is
+# `max_length`), and transformers 5 renamed `evaluation_strategy` to
+# `eval_strategy`. Verified against the live Kaggle image, not from memory.
+training_args = SFTConfig(
     output_dir=OUTPUT_DIR,
     num_train_epochs=EPOCHS,
     per_device_train_batch_size=BATCH_SIZE,
@@ -390,7 +415,7 @@ training_args = TrainingArguments(
     bf16=SUPPORTS_BF16,
     optim="paged_adamw_8bit",
     logging_steps=10,
-    evaluation_strategy="steps",
+    eval_strategy="steps",
     eval_steps=EVAL_STEPS,
     save_strategy="steps",
     save_steps=SAVE_STEPS,
@@ -402,6 +427,10 @@ training_args = TrainingArguments(
     run_name=RUN_NAME,
     seed=42,
     group_by_length=True,  # big speedup: batches similar-length sequences
+    # These three moved here from the SFTTrainer(...) call in trl 1.x.
+    dataset_text_field="text",
+    max_length=MAX_SEQ_LEN,
+    packing=False,  # persona examples are short; packing blurs turn boundaries
 )
 
 trainer = SFTTrainer(
@@ -409,10 +438,7 @@ trainer = SFTTrainer(
     args=training_args,
     train_dataset=dataset["train"],
     eval_dataset=dataset["validation"],
-    tokenizer=tokenizer,
-    dataset_text_field="text",
-    max_seq_length=MAX_SEQ_LEN,
-    packing=False,  # persona examples are short; packing blurs turn boundaries
+    processing_class=tokenizer,  # was tokenizer=, removed in trl 1.x
 )
 
 print(f"\n{'=' * 70}")
