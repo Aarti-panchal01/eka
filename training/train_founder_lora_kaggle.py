@@ -7,7 +7,9 @@ notebook (or upload as a script) and run top to bottom.
 
 BEFORE YOU RUN
 --------------
-1. Kaggle -> Settings -> Accelerator = GPU T4 x1 (7B in 4-bit fits comfortably)
+1. Kaggle -> Settings -> Accelerator = GPU T4 x2  <- NOT the single-GPU
+   option. Kaggle offers 'GPU T4 x2' or 'GPU P100'; there is no T4 x1, and
+   the P100 is sm_60, which this image's torch no longer supports.
 2. Kaggle -> Settings -> Internet = ON
 3. Kaggle -> Add-ons -> Secrets, add all three:
        HF_TOKEN        (write permission)
@@ -42,7 +44,7 @@ Change MODE below to "chanakya" / "gita" / "reflection". Nothing else changes.
 # 3. Add: WANDB_API_KEY = your_wandb_key
 # 4. Add: HF_USERNAME   = amijackofalltrades
 # 5. Enable "Internet" in Settings (right-hand panel)
-# 6. Enable "GPU T4 x1" in Settings  (Accelerator)
+# 6. Enable "GPU T4 x2" in Settings  (Accelerator) — never GPU P100
 # 7. Enable "Background Execution"  <- CRITICAL: keeps training after you
 #    close the browser. Without it the session dies when the tab closes.
 #    (In the current Kaggle UI this is "Save Version -> Save & Run All (Commit)".)
@@ -218,11 +220,32 @@ import torch  # noqa: E402
 
 if not torch.cuda.is_available():
     raise SystemExit(
-        "No GPU detected. Kaggle -> Settings -> Accelerator -> GPU T4 x1.\n"
+        "No GPU detected. Kaggle -> Settings -> Accelerator -> GPU T4 x2.\n"
         "(4-bit QLoRA on a 7B model is not viable on CPU.)"
     )
 
 GPU_NAME = torch.cuda.get_device_name(0)
+
+# Fail in five seconds on the wrong GPU rather than ten minutes in, mid-download.
+#
+# Kaggle's accelerator menu is "GPU T4 x2" or "GPU P100" — there is no T4 x1, so
+# asking for a single GPU gets you a P100. That is compute capability 6.0, and
+# this image's torch supports 7.0+. Nothing complains at load time: the model
+# starts downloading, then bitsandbytes' 4-bit kernel hits a symbol that was
+# never compiled for sm_60, prints
+#     Error named symbol not found at line 74 in file /src/csrc/ops.cu
+# and takes the interpreter with it. Papermill reports that as DeadKernelError,
+# which reads like an OOM and sends you tuning batch size for no reason.
+# Measured 2026-08-13.
+CAPABILITY = torch.cuda.get_device_capability(0)
+if CAPABILITY < (7, 0):
+    raise SystemExit(
+        f"{GPU_NAME} is compute capability {CAPABILITY[0]}.{CAPABILITY[1]}; this "
+        f"image's torch needs 7.0+.\n"
+        "Kaggle -> Settings -> Accelerator -> GPU T4 x2 (NOT GPU P100), then "
+        "re-run.\n"
+        "The x2 also raises the RAM ceiling, which the 4-bit load wants anyway."
+    )
 # Turing (T4) has no bfloat16 support. Ampere+ (A100/L4) does. Picking the
 # wrong one here is the most common cause of "RuntimeError: expected scalar
 # type" or silent NaN losses on Kaggle.
