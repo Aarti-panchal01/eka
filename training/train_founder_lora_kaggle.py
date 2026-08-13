@@ -112,21 +112,63 @@ print(f"✓ numpy {_np.__version__}" + ("  (wandb will be skipped — see below)
 # ==============================================================================
 # SECTION 2 — AUTH (Kaggle Secrets, with plain-env fallback)
 # ==============================================================================
-def _load_secrets() -> dict:
-    """Read HF_TOKEN / WANDB_API_KEY / HF_USERNAME from Kaggle Secrets or env."""
-    names = ["HF_TOKEN", "WANDB_API_KEY", "HF_USERNAME"]
-    found = {}
-    try:
-        from kaggle_secrets import UserSecretsClient
+SECRETS_DATASET = "/kaggle/input/eka-secrets/secrets.json"
 
-        client = UserSecretsClient()
+
+def _load_secrets() -> dict:
+    """Read HF_TOKEN / WANDB_API_KEY / HF_USERNAME, dataset first.
+
+    Three sources, in order of how reliably they survive automation:
+
+    1. The attached private dataset (see SECRETS_DATASET). This exists because
+       `kaggle kernels push` cannot attach Kaggle Secrets and, worse, DETACHES
+       them from a notebook that already had them — so an API-pushed notebook
+       always died at this function until someone ticked two boxes in a
+       browser. `dataset_sources` IS honoured by push, so this makes an
+       unattended launch actually possible.
+    2. Kaggle Secrets, for notebooks still driven by hand.
+    3. Plain environment, for running the .py outside Kaggle.
+
+    A later source never overwrites an earlier one, so the dataset wins and the
+    others stay as fallbacks.
+    """
+    names = ["HF_TOKEN", "WANDB_API_KEY", "HF_USERNAME"]
+    found = {n: "" for n in names}
+
+    # 1. attached dataset
+    try:
+        import json as _json
+
+        with open(SECRETS_DATASET, "r", encoding="utf-8") as fh:
+            blob = _json.load(fh)
         for name in names:
-            try:
-                found[name] = client.get_secret(name)
-            except Exception:
-                found[name] = os.environ.get(name, "")
-    except Exception:
-        for name in names:
+            if not found[name] and blob.get(name):
+                found[name] = str(blob[name]).strip()
+        print(f"\u2713 secrets from attached dataset ({SECRETS_DATASET})")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"! could not read {SECRETS_DATASET}: {type(exc).__name__}: {exc}")
+
+    # 2. Kaggle Secrets
+    if not all(found[n] for n in ("HF_TOKEN", "HF_USERNAME")):
+        try:
+            from kaggle_secrets import UserSecretsClient
+
+            client = UserSecretsClient()
+            for name in names:
+                if found[name]:
+                    continue
+                try:
+                    found[name] = client.get_secret(name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 3. environment
+    for name in names:
+        if not found[name]:
             found[name] = os.environ.get(name, "")
 
     for name, value in found.items():
@@ -137,7 +179,9 @@ def _load_secrets() -> dict:
     if missing:
         raise SystemExit(
             f"Missing required secret(s): {', '.join(missing)}\n"
-            "Add them under Kaggle -> Add-ons -> Secrets, then restart the session."
+            f"Either attach the eka-secrets dataset (Add Input -> "
+            f"aartipanchal01/eka-secrets), or add them under Kaggle -> "
+            f"Add-ons -> Secrets, then restart the session."
         )
     return found
 
