@@ -15,8 +15,8 @@ Checks, in the order a training run would hit them:
   1. the split files exist at all
   2. every row has a non-empty `text` — SFTTrainer is built with
      dataset_text_field="text" and a missing column fails at trainer setup
-  3. every row carries the full Llama-3 chat scaffolding; a stray row without
-     an <|eot_id|> teaches the model not to stop
+  3. every row carries the full ChatML scaffolding; a stray row without an
+     <|im_end|> teaches the model not to stop
   4. nothing exceeds MAX_SEQ_LEN, which would be silently truncated mid-answer
   5. the validation split is non-empty — evaluation_strategy="steps" with
      load_best_model_at_end=True and metric_for_best_model="eval_loss" cannot
@@ -48,12 +48,14 @@ MODES = ("founder", "chanakya", "gita", "reflection")
 MAX_SEQ_LEN = 2048          # must match training/train_*_lora_kaggle.py
 CHARS_PER_TOKEN = 4         # rough; only used to flag rows near the ceiling
 
+# ChatML — must match ml/scripts/preprocess.py's TEMPLATE. If you swap the
+# base model, swap these too, or this check passes a dataset the new
+# tokenizer cannot read as chat at all.
 REQUIRED_MARKERS = (
-    "<|begin_of_text|>",
-    "<|start_header_id|>system<|end_header_id|>",
-    "<|start_header_id|>user<|end_header_id|>",
-    "<|start_header_id|>assistant<|end_header_id|>",
-    "<|eot_id|>",
+    "<|im_start|>system",
+    "<|im_start|>user",
+    "<|im_start|>assistant",
+    "<|im_end|>",
 )
 
 

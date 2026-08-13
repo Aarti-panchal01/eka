@@ -103,7 +103,7 @@ def check_env_prereqs() -> Optional[Dict[str, str]]:
 
 def check_adapter_on_hub(mode: str, username: str, token: str) -> bool:
     """Confirm `<username>/eka-<mode>-lora` exists on the Hub before merging."""
-    repo_id = f"{username}/eka-{mode}-lora"
+    repo_id = f"{username}/eka-{mode}-qwen"
     try:
         from huggingface_hub import HfApi
         from huggingface_hub.utils import HfHubHTTPError

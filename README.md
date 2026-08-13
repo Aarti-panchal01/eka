@@ -51,10 +51,10 @@ less context and no voice.
 
 | Repo | Base | Task |
 |---|---|---|
-| `eka-founder-lora` | Llama-3-8B-Instruct | QLoRA persona |
-| `eka-chanakya-lora` | Llama-3-8B-Instruct | QLoRA persona |
-| `eka-gita-lora` | Llama-3-8B-Instruct | QLoRA persona |
-| `eka-reflection-lora` | Llama-3-8B-Instruct | QLoRA persona |
+| `eka-founder-qwen` | Qwen2.5-7B-Instruct | QLoRA persona |
+| `eka-chanakya-qwen` | Qwen2.5-7B-Instruct | QLoRA persona |
+| `eka-gita-qwen` | Qwen2.5-7B-Instruct | QLoRA persona |
+| `eka-reflection-qwen` | Qwen2.5-7B-Instruct | QLoRA persona |
 | `eka-embeddings` | BGE-base-en-v1.5 | triplet fine-tune |
 | `eka-complexity` | DistilBERT | 4-class routing |
 | `eka-sentiment` | DistilRoBERTa | 6-class emotion |

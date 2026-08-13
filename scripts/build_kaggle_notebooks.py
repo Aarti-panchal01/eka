@@ -212,7 +212,7 @@ def build(mode: str) -> dict:
             "from huggingface_hub import HfApi; import os\n"
             "from dotenv import load_dotenv; load_dotenv('.env')\n"
             "print(HfApi(token=os.getenv('HF_TOKEN')).list_repo_files(\n"
-            f"    'amijackofalltrades/eka-{mode}-lora'))\"\n"
+            f"    'amijackofalltrades/eka-{mode}-qwen'))\"\n"
             "```\n\n"
             f"Then merge locally: `python ml/scripts/merge_lora.py --mode {mode}`\n"
         )

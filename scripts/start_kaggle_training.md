@@ -6,10 +6,10 @@ single sitting.
 
 | # | Script | Produces | T4 time |
 |---|---|---|---|
-| 1 | `train_founder_lora_kaggle.py` | `eka-founder-lora` | ~2.5–3.5 h |
-| 2 | `train_chanakya_lora_kaggle.py` | `eka-chanakya-lora` | ~2.5–3.5 h |
-| 3 | `train_gita_lora_kaggle.py` | `eka-gita-lora` | ~2.5–3.5 h |
-| 4 | `train_reflection_lora_kaggle.py` | `eka-reflection-lora` | ~2.5–3.5 h |
+| 1 | `train_founder_lora_kaggle.py` | `eka-founder-qwen` | ~2.5–3.5 h |
+| 2 | `train_chanakya_lora_kaggle.py` | `eka-chanakya-qwen` | ~2.5–3.5 h |
+| 3 | `train_gita_lora_kaggle.py` | `eka-gita-qwen` | ~2.5–3.5 h |
+| 4 | `train_reflection_lora_kaggle.py` | `eka-reflection-qwen` | ~2.5–3.5 h |
 | 5 | `train_embeddings_kaggle.py` | `eka-embeddings` | ~20–40 min |
 | 6 | `train_classifiers_kaggle.py` | `eka-complexity`, `eka-sentiment` | ~20–40 min |
 
@@ -69,11 +69,10 @@ Do this once. It applies to every notebook afterwards.
    An added-but-unattached secret reads back as an empty string; the auth cell
    catches this and exits with a clear message, but only after you have waited
    for the notebook to boot.
-3. **Accept the Llama 3 license** at
-   [meta-llama/Meta-Llama-3-8B-Instruct](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct)
-   using the **same account** `HF_TOKEN` belongs to (`amijackofalltrades`).
-   Skip this and the base-model download 403s. Approval is usually instant but
-   is occasionally queued — do it before Session 1, not during.
+3. **No license step.** The base model is `Qwen/Qwen2.5-7B-Instruct`, which
+   is ungated — it downloads immediately with any valid token. This used to be
+   `meta-llama/Meta-Llama-3-8B-Instruct`; the switch was made on 2026-08-13
+   because Meta approval for Llama 3.1/3.2 was still pending.
 4. Note your **GPU quota: 30 hours/week**, resetting Saturday 00:00 UTC. Four
    persona runs at ~3.5 h worst case is ~14 h, so all four fit in one week with
    room to retry a failure. The two short runs fit easily too.
@@ -107,10 +106,10 @@ expensive.
 Identical for all six. Only the pasted script changes.
 
 1. **kaggle.com/code → New Notebook**.
-2. Name it for the run (`eka-founder-lora`) so you can find it later.
+2. Name it for the run (`eka-founder-qwen`) so you can find it later.
 3. Right-hand **Settings** panel:
-   - **Accelerator** → `GPU T4 x2`. The script uses one GPU; x2 is selected
-     because it also raises the RAM ceiling.
+   - **Accelerator** → `GPU T4 x1`. A 7B model in 4-bit NF4 with gradient
+     checkpointing fits a single 16GB T4 with room to spare.
    - **Internet** → `On`. Required — it downloads the base model and pushes
      results.
    - **Persistence** → `Files only` if offered. This is what lets a restarted
@@ -133,7 +132,7 @@ Identical for all six. Only the pasted script changes.
    from huggingface_hub import HfApi; import os
    from dotenv import load_dotenv; load_dotenv('.env')
    print(HfApi(token=os.getenv('HF_TOKEN')).list_repo_files(
-       'amijackofalltrades/eka-founder-lora'))"
+       'amijackofalltrades/eka-founder-qwen'))"
    ```
 
    Expect `adapter_model.safetensors` and `adapter_config.json`. A repo with
@@ -214,9 +213,9 @@ Common failures, in the order you are likely to hit them:
 | Symptom | Cause |
 |---|---|
 | Auth cell exits immediately | Secret added but not attached (step 2 above) |
-| `403` on base model download | Llama 3 license not accepted by `amijackofalltrades` |
+| `403` on base model download | `HF_TOKEN` invalid — Qwen2.5 itself is ungated |
 | `EntryNotFoundError` on a `.jsonl` | `upload_to_hf.py` has not been run for that persona |
-| CUDA OOM | Accelerator is T4 **x1**; switch to x2, or lower `MAX_SEQ_LEN` |
+| CUDA OOM | Lower `MAX_SEQ_LEN`, or drop `BATCH_SIZE` to 1 and raise `GRAD_ACCUM` |
 | Run vanished on tab close | Interactive Run All instead of Save & Run All (Commit) |
 
 ---

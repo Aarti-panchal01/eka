@@ -15,7 +15,7 @@ DESIGN CHOICE: one base model + four swappable PEFT adapters
 --------------------------------------------------------------------------
 Each of Eka's four personas (founder / chanakya / gita / reflection) has its
 own LoRA adapter, but they all share the same base model
-(meta-llama/Meta-Llama-3-8B-Instruct). A merged fp16 checkpoint is ~16GB, and
+(Qwen/Qwen2.5-7B-Instruct). A merged fp16 checkpoint is ~15GB, and
 ZeroGPU Spaces have limited disk + only allocate a GPU for the duration of a
 single decorated call — loading four full 16GB merged models simultaneously
 is not viable (64GB+ of weights, most of it identical base-model bytes
@@ -94,26 +94,26 @@ except ImportError:
 
 
 VALID_MODES = ("founder", "chanakya", "gita", "reflection")
-BASE_MODEL = os.environ.get("BASE_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+BASE_MODEL = os.environ.get("BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 HF_USERNAME = os.environ.get("HF_USERNAME", "").strip()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip() or None
 MAX_SEQ_LEN = int(os.environ.get("MAX_SEQ_LEN", "4096"))
 
-# Llama-3 chat template — must match ml/scripts/preprocess.py's TEMPLATE (used
-# as a fallback when the tokenizer has no chat_template of its own).
+# ChatML — must match ml/scripts/preprocess.py's TEMPLATE (used as a fallback
+# when the tokenizer has no chat_template of its own).
 FALLBACK_TEMPLATE = (
-    "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-    "{system}<|eot_id|>"
-    "<|start_header_id|>user<|end_header_id|>\n\n"
-    "{user}<|eot_id|>"
-    "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    "<|im_start|>system\n"
+    "{system}<|im_end|>\n"
+    "<|im_start|>user\n"
+    "{user}<|im_end|>\n"
+    "<|im_start|>assistant\n"
 )
 
 
 def adapter_repo(mode: str) -> str:
     """Matches the naming convention in ml/scripts/merge_lora.py."""
     username = HF_USERNAME or "eka"
-    return f"{username}/eka-{mode}-lora"
+    return f"{username}/eka-{mode}-qwen"
 
 
 # --------------------------------------------------------------------------
@@ -249,10 +249,10 @@ def run_generation(
     inputs = _tokenizer(text, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
     inputs = {k: v.to(_model.device) for k, v in inputs.items()}
 
-    eot_id = _tokenizer.convert_tokens_to_ids("<|eot_id|>")
+    im_end = _tokenizer.convert_tokens_to_ids("<|im_end|>")
     eos_ids = [_tokenizer.eos_token_id]
-    if isinstance(eot_id, int) and eot_id >= 0 and eot_id not in eos_ids:
-        eos_ids.append(eot_id)
+    if isinstance(im_end, int) and im_end >= 0 and im_end not in eos_ids:
+        eos_ids.append(im_end)
 
     with torch.no_grad():
         output_ids = _model.generate(
@@ -271,7 +271,7 @@ def run_generation(
 
     # Defensive cleanup in case skip_special_tokens misses a leaked token or
     # the model echoes a new turn marker.
-    for token in ("<|eot_id|>", "<|start_header_id|>", "<|end_header_id|>"):
+    for token in ("<|im_end|>", "<|im_start|>"):
         cut = text_out.find(token)
         if cut != -1:
             text_out = text_out[:cut]
@@ -420,12 +420,12 @@ if __name__ == "__main__":
 #    docker. Commit and push.
 # 4. Space Settings -> Repository secrets -> add:
 #      HF_TOKEN     = a Hugging Face token with read access to your
-#                      eka-<mode>-lora adapter repos (and to the gated
-#                      meta-llama/Meta-Llama-3-8B-Instruct repo — accept its
-#                      license on huggingface.co first, or generation will
-#                      401 on model load)
+#                      eka-<mode>-qwen adapter repos. The base model
+#                      (Qwen/Qwen2.5-7B-Instruct) is ungated, so there is no
+#                      license to accept — a token that can read your own
+#                      private adapters is enough.
 #      HF_USERNAME  = your HF username (used to build the adapter repo IDs)
-#    Optional: BASE_MODEL to override the default Llama-3-8B-Instruct.
+#    Optional: BASE_MODEL to override the default Qwen2.5-7B-Instruct.
 # 5. Space Settings -> Hardware -> select "ZeroGPU". This requires a Pro
 #    account or a Space that has been granted ZeroGPU access (HF offers a
 #    limited free ZeroGPU quota via Spaces run on community grants — check

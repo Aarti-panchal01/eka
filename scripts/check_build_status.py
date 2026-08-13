@@ -133,10 +133,10 @@ def section_models() -> None:
         return
 
     model_repos = [
-        "eka-founder-lora",
-        "eka-chanakya-lora",
-        "eka-gita-lora",
-        "eka-reflection-lora",
+        "eka-founder-qwen",
+        "eka-chanakya-qwen",
+        "eka-gita-qwen",
+        "eka-reflection-qwen",
         "eka-embeddings",
         "eka-complexity",
         "eka-sentiment",
@@ -439,7 +439,7 @@ def section_next_actions() -> None:
 
     if facts["splits_present"] and facts["hf_username_set"]:
         lora_repos = [
-            r for r in ("eka-founder-lora", "eka-chanakya-lora", "eka-gita-lora", "eka-reflection-lora")
+            r for r in ("eka-founder-qwen", "eka-chanakya-qwen", "eka-gita-qwen", "eka-reflection-qwen")
         ]
         any_lora_missing = any(facts["hf_repos"].get(r) != "found" for r in lora_repos)
         if any_lora_missing:

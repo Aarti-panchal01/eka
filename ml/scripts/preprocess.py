@@ -1,4 +1,4 @@
-"""Turn the raw persona datasets into Llama-3 chat-formatted train/val splits.
+"""Turn the raw persona datasets into ChatML-formatted train/val splits.
 
     python ml/scripts/preprocess.py
 
@@ -6,7 +6,7 @@ Reads   ml/datasets/{mode}_dataset.json
 Writes  ml/data/splits/{mode}_train.jsonl   (90%)
         ml/data/splits/{mode}_val.jsonl     (10%)
 
-Each output line is {"text": "<full Llama-3 chat sequence>", ...metadata}, which
+Each output line is {"text": "<full ChatML chat sequence>", ...metadata}, which
 is exactly what SFTTrainer's dataset_text_field wants.
 
 The split is stratified by topic tag so no topic lands entirely in validation.
@@ -37,15 +37,23 @@ MODES = ("founder", "chanakya", "gita", "reflection")
 VAL_FRACTION = 0.10
 random.seed(42)
 
-# Llama-3 instruct chat template. The trailing <|eot_id|> is what teaches the
-# model to stop — leaving it out is the single most common fine-tune bug.
+# ChatML, which is what Qwen2.5-Instruct was trained on. The trailing
+# <|im_end|> is what teaches the model to stop — leaving it out is the single
+# most common fine-tune bug.
+#
+# This was the Llama-3 template until 2026-08-13. Both halves of a base-model
+# swap have to move together: Qwen's tokenizer has no <|eot_id|> and no
+# <|start_header_id|>, so Llama-formatted rows would train it on markers that
+# are, to it, ordinary text — and it would never learn a real stop. Changing
+# this line means re-running preprocess.py AND upload_to_hf.py, or Kaggle
+# trains on whatever stale format is still sitting in the dataset repo.
 TEMPLATE = (
-    "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-    "{system}<|eot_id|>"
-    "<|start_header_id|>user<|end_header_id|>\n\n"
-    "{user}<|eot_id|>"
-    "<|start_header_id|>assistant<|end_header_id|>\n\n"
-    "{assistant}<|eot_id|>"
+    "<|im_start|>system\n"
+    "{system}<|im_end|>\n"
+    "<|im_start|>user\n"
+    "{user}<|im_end|>\n"
+    "<|im_start|>assistant\n"
+    "{assistant}<|im_end|>"
 )
 
 
@@ -106,7 +114,7 @@ def approx_tokens(text: str) -> int:
 
 def main() -> None:
     SPLITS_DIR.mkdir(parents=True, exist_ok=True)
-    print("EKA preprocess — Llama-3 chat format\n")
+    print("EKA preprocess — ChatML (Qwen2.5) chat format\n")
     grand_train = grand_val = 0
     longest = 0
 

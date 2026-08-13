@@ -113,7 +113,7 @@ Training data for **Eka**, a lifelong AI companion with four fine-tuned personas
 
 | file | schema | used by |
 |---|---|---|
-| `{{mode}}_train.jsonl` / `{{mode}}_val.jsonl` | `{{"text": "<llama-3 chat sequence>", "mode", "tags"}}` | `train_{{mode}}_lora_kaggle.py` |
+| `{{mode}}_train.jsonl` / `{{mode}}_val.jsonl` | `{{"text": "<ChatML chat sequence>", "mode", "tags"}}` | `train_{{mode}}_lora_kaggle.py` |
 | `embedding_triplets.jsonl` | `{{"anchor", "positive", "negative", "mode"}}` | `train_embeddings_kaggle.py` |
 | `complexity_labeled.jsonl` | `{{"query", "label"}}` where label ∈ simple/normal/complex/deep | `train_classifiers_kaggle.py` |
 

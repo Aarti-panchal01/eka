@@ -7,15 +7,16 @@ notebook (or upload as a script) and run top to bottom.
 
 BEFORE YOU RUN
 --------------
-1. Kaggle -> Settings -> Accelerator = GPU T4 x2 (uses one; x2 gets you more RAM)
+1. Kaggle -> Settings -> Accelerator = GPU T4 x1 (7B in 4-bit fits comfortably)
 2. Kaggle -> Settings -> Internet = ON
 3. Kaggle -> Add-ons -> Secrets, add all three:
        HF_TOKEN        (write permission)
        WANDB_API_KEY
        HF_USERNAME
-4. Accept the Llama 3 license at
-       huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct
-   with the SAME account as HF_TOKEN, or the model download 403s.
+4. No license to accept. Qwen/Qwen2.5-7B-Instruct is ungated and starts
+   downloading immediately. (The base model was
+   meta-llama/Meta-Llama-3-8B-Instruct until 2026-08-13; Meta approval for
+   Llama 3.1/3.2 was still pending, so this moved to Qwen.)
 5. Kaggle -> Save Version -> "Save & Run All (Commit)" so it keeps training
    after you close the browser. Kaggle sessions cap at 12h; this run needs
    far less, but the checkpoint-resume logic below survives a restart anyway.
@@ -144,9 +145,9 @@ else:
 MODE = "gita"  # <-- the ONLY line that differs from train_founder_lora_kaggle.py
 
 HF_USERNAME = os.environ["HF_USERNAME"]
-BASE_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
+BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DATASET_REPO = f"{HF_USERNAME}/eka-datasets"
-OUTPUT_REPO = f"{HF_USERNAME}/eka-{MODE}-lora"
+OUTPUT_REPO = f"{HF_USERNAME}/eka-{MODE}-qwen"
 OUTPUT_DIR = f"/kaggle/working/{MODE}_lora"
 
 MAX_SEQ_LEN = 2048
@@ -160,7 +161,7 @@ LR = 2e-4
 SAVE_STEPS = 50
 EVAL_STEPS = 50
 WANDB_PROJECT = "eka"
-RUN_NAME = f"eka-{MODE}-lora-v1"
+RUN_NAME = f"eka-{MODE}-qwen-v1"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 if USE_WANDB:
@@ -177,8 +178,8 @@ import torch  # noqa: E402
 
 if not torch.cuda.is_available():
     raise SystemExit(
-        "No GPU detected. Kaggle -> Settings -> Accelerator -> GPU T4 x2.\n"
-        "(4-bit QLoRA on an 8B model is not viable on CPU.)"
+        "No GPU detected. Kaggle -> Settings -> Accelerator -> GPU T4 x1.\n"
+        "(4-bit QLoRA on a 7B model is not viable on CPU.)"
     )
 
 GPU_NAME = torch.cuda.get_device_name(0)
@@ -265,10 +266,23 @@ bnb_config = BitsAndBytesConfig(
 )
 
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=os.environ["HF_TOKEN"])
-tokenizer.pad_token = tokenizer.eos_token
+
+# Do NOT set pad_token = eos_token here. On Llama-3 that was harmless, because
+# its eos (<|end_of_text|>) is a different token from the one the template ends
+# turns with (<|eot_id|>). On Qwen2.5 they are the same token: eos IS <|im_end|>.
+# The SFT collator masks pad positions out of the labels, so pad == eos would
+# mask every stop token the model is supposed to be learning, and the adapter
+# would never stop generating. Qwen ships a separate <|endoftext|> for padding.
+if tokenizer.pad_token is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
+    if "<|endoftext|>" in tokenizer.get_vocab():
+        tokenizer.pad_token = "<|endoftext|>"
+    else:
+        print("! no distinct pad token found — stop tokens may be masked in labels")
+print(f"     pad={tokenizer.pad_token!r} ({tokenizer.pad_token_id})  "
+      f"eos={tokenizer.eos_token!r} ({tokenizer.eos_token_id})")
 tokenizer.padding_side = "right"  # left padding corrupts causal LM training
 
-print("Loading base model in 4-bit (first run downloads ~16GB)...")
+print("Loading base model in 4-bit (first run downloads ~15GB)...")
 model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL,
     quantization_config=bnb_config,
@@ -303,7 +317,7 @@ lora_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()  # expect ~42M trainable / 0.5% of 8B
+model.print_trainable_parameters()  # expect ~40M trainable / ~0.5% of 7B
 
 
 # ==============================================================================
@@ -381,9 +395,9 @@ tags:
 - {MODE}
 ---
 
-# eka-{MODE}-lora
+# eka-{MODE}-qwen
 
-QLoRA adapter giving Llama-3-8B-Instruct Eka's **{MODE}** persona.
+QLoRA adapter giving Qwen2.5-7B-Instruct Eka's **{MODE}** persona.
 
 | | |
 |---|---|
@@ -426,9 +440,9 @@ PROBES = {
 
 model.eval()
 prompt = (
-    "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n"
-    f"{PROBES[MODE]}<|eot_id|>"
-    "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    "<|im_start|>user\n"
+    f"{PROBES[MODE]}<|im_end|>\n"
+    "<|im_start|>assistant\n"
 )
 inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 with torch.no_grad():
@@ -440,7 +454,7 @@ with torch.no_grad():
         top_k=40,
         do_sample=True,
         eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id,
     )
 
 print(f"\n{'=' * 70}")

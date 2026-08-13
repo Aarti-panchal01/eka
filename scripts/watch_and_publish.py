@@ -207,7 +207,7 @@ Per session (four persona runs, ~2.5-3.5h each on one T4):
        python -c "from huggingface_hub import HfApi; import os; \\
          from dotenv import load_dotenv; load_dotenv('.env'); \\
          print(HfApi(token=os.getenv('HF_TOKEN')).list_repo_files(
-           'amijackofalltrades/eka-founder-lora'))"
+           'amijackofalltrades/eka-founder-qwen'))"
 
 Then repeat for chanakya, gita, reflection. Watch session 1 to completion
 first — unattached secrets and the unaccepted Llama license both surface

@@ -36,23 +36,22 @@ except ImportError:
     pass
 
 MODES = ("founder", "chanakya", "gita", "reflection")
-BASE_MODEL = os.environ.get("BASE_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+BASE_MODEL = os.environ.get("BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 
 MODELFILE = """FROM ./
 PARAMETER temperature 0.7
 PARAMETER top_p 0.9
 PARAMETER top_k 40
 PARAMETER num_ctx 4096
-PARAMETER stop "<|eot_id|>"
-PARAMETER stop "<|start_header_id|>"
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"
 PARAMETER stop "User:"
 
-TEMPLATE \"\"\"<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
-{{ .System }}<|eot_id|><|start_header_id|>user<|end_header_id|>
-
-{{ .Prompt }}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-
+TEMPLATE \"\"\"<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
 \"\"\"
 
 SYSTEM \"\"\"{system}\"\"\"
@@ -64,7 +63,7 @@ def merge_one(mode: str, username: str, token: str, dtype_name: str) -> Path:
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    adapter_repo = f"{username}/eka-{mode}-lora"
+    adapter_repo = f"{username}/eka-{mode}-qwen"
     out_dir = MERGED_DIR / mode
     out_dir.mkdir(parents=True, exist_ok=True)
 
