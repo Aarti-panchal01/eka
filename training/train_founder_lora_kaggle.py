@@ -216,6 +216,23 @@ print(f"  data    : {DATASET_REPO}  ({MODE}_train.jsonl / {MODE}_val.jsonl)")
 print(f"  output  : {OUTPUT_REPO}")
 print(f"{'=' * 70}\n")
 
+# Kaggle's "GPU T4 x2" really is two GPUs, and HF Trainer uses ALL visible ones
+# by default via nn.DataParallel. The model is loaded with device_map={"": 0},
+# pinned to GPU 0, so replica 1 lands on cuda:1 with its weights on cuda:0 and
+# the first training step dies with:
+#
+#     RuntimeError: Caught RuntimeError in replica 1 on device 1.
+#     Expected all tensors to be on the same device, but got index is on
+#     cuda:1, different from other tensors on cuda:0
+#
+# Measured 2026-08-13, immediately after TRAINING START.
+#
+# We want the x2 instance for its RAM ceiling, not for data parallelism — a 7B
+# QLoRA fits one T4, and DataParallel across two T4s over PCIe spends more on
+# gather/scatter than it gains. Hiding the second GPU is the fix, and it has to
+# happen before torch initialises CUDA.
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import torch  # noqa: E402
 
 if not torch.cuda.is_available():
