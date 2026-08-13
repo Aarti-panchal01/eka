@@ -1,9 +1,27 @@
 # Tomorrow — exact steps
 
-**Generation is DONE. All four datasets are on the Hub. Go to Kaggle.**
+**Founder LoRA is TRAINING on Kaggle right now** (started ~15:30 on 2026-08-13,
+~3 h). Sessions 2–4 are ready whenever you want them.
 
-Finished 03:02 on 2026-08-13. The watcher preprocessed, gated and published
-unattended, exactly as designed.
+> ### Read this first — the base model changed on 2026-08-13
+>
+> Everything below that says Llama-3 is **out of date**. The persona runs now
+> target **`Qwen/Qwen2.5-7B-Instruct`** on a **single T4**, publishing to
+> **`eka-{mode}-qwen`**. Meta approval for Llama 3.1/3.2 was still pending;
+> Qwen is ungated and downloads immediately, so there is no license step.
+>
+> The splits moved with it. `preprocess.py` now writes **ChatML**
+> (`<|im_start|>` / `<|im_end|>`) and `preflight_kaggle.py` checks for that,
+> because Qwen's tokenizer has no `<|eot_id|>` — Llama-formatted rows would
+> have trained it on markers that are, to it, ordinary text. The splits were
+> regenerated and re-uploaded, and a row was read back off the Hub to confirm.
+>
+> One trap worth remembering: Qwen's `eos` **is** `<|im_end|>`, so the old
+> `pad_token = eos_token` line would have masked every stop token out of the
+> labels. The scripts now keep Qwen's separate `<|endoftext|>` pad.
+
+Generation finished 03:02 on 2026-08-13. The watcher preprocessed, gated and
+published unattended, exactly as designed.
 
 | persona | pairs | train / val | verdict |
 |---|---:|---:|---|
@@ -16,16 +34,27 @@ unattended, exactly as designed.
 `marker=1.0` and `unique=True` on all four. Live at
 `huggingface.co/datasets/amijackofalltrades/eka-datasets` (private).
 
-**Embedding triplets are generating** (started 06:46, ~2.5 h for round 1).
-They were the one thing blocking Kaggle **session 5**; sessions 1–4 and 6
-never needed them and are ready now. When it finishes, re-push and confirm:
+**Embedding triplets are still generating, and they are the slow item.**
+1,750/6,000 as of 15:50 on 2026-08-13. They block only Kaggle **session 5**;
+sessions 1–4 and 6 never needed them.
+
+The original "~2.5 h" estimate is **wrong** — see "The triplet run is the one
+unhappy thing" below. Do not plan around it finishing today.
+
+It now runs unattended as the **`eka-triplets` scheduled task**, so you do not
+start it by hand:
+
+```bash
+schtasks /Query /TN eka-triplets            # is it alive?
+tail -f ml/datasets/triplets_run.log        # what it is doing
+```
+
+When it does reach 6,000 the task deletes itself, and you then run:
 
 ```bash
 python ml/scripts/upload_to_hf.py
 python scripts/preflight_kaggle.py --hub
 ```
-
-Progress without touching the API: `grep -c . ml/datasets/embedding_triplets.jsonl`
 
 ---
 
@@ -36,8 +65,8 @@ cd ~/eka
 python scripts/preflight_kaggle.py --hub    # expect: 4/4 ready, exit 0
 ```
 
-That was green at 03:03. If it still is, **start Kaggle session 1 (founder)** —
-jump to step 4. Nothing else needs doing first.
+Green at 15:20 on 2026-08-13, against the **ChatML/Qwen** splits. If it still
+is, start the next Kaggle session — jump to step 4.
 
 Only if something looks wrong:
 
@@ -196,6 +225,48 @@ only thing standing between a near-duplicate and a multi-hour GPU run.
 
 ---
 
+## The triplet run is the one unhappy thing
+
+It has died twice and been throttled hard, and the "~2.5 h" figure elsewhere in
+this file is wrong. Measured, not estimated:
+
+| when | what happened |
+|---|---|
+| 07:42 | **Windows Update rebooted the machine** at 847/6000. stderr was empty because nothing crashed — the process was terminated by the shutdown |
+| 11:50 | **Killed by a console control event** (`0xC000013A`). No reboot. Exact trigger never pinned |
+| 12:40–14:58 | **Lid closed → Modern Standby for 2 h 18 m.** Process alive but frozen; looked identical to "running but stuck" |
+| 15:09–15:50 | Awake, no sleep, 63 triplets in 41 min = **1.5/min** with 16 rate-limit stalls |
+
+Two fixes are in and both work:
+
+- **`scripts/run_triplets_until_done.py`** supervises the generator and re-runs
+  it until target, giving up only after three passes that gain nothing. It runs
+  as the `eka-triplets` scheduled task with an AtLogOn trigger *and* a 15-minute
+  heartbeat (`MultipleInstances=IgnoreNew`), so any death self-heals within 15
+  minutes whatever caused it. The task deletes itself at 6,000.
+- **Lid-close on AC is now "Do nothing"** (`ACSettingIndex=0`, battery left on
+  Sleep). Note the setting is *hidden* in the Windows UI on this Modern Standby
+  machine — `powercfg /q` prints nothing for it — so verify it in the registry:
+  `HKLM:\...\PowerSchemes\<scheme>\4f971e89-...\5ca83367-...`
+
+**What is NOT fixed is throughput.** `GEN_SLEEP=2.5` produced 1.3/min against
+constant 429s; 5.0 was clean for a few minutes and then settled at ~1.5/min
+with the stalls back. At that rate the ~1,450 round-1 calls still outstanding
+are **~16 hours**, not 2.5.
+
+The ceiling is Groq's free 8B tier, and the fix is almost certainly to stop
+using Groq for this. `paraphrase()` in `_gen_common.py` is hardwired to the
+Groq client, while the four Mistral keys that carried the whole overnight
+generation run are sitting idle and meter *per month* (~1B tokens). Pointing
+paraphrase at the Mistral pool is the single highest-value change available
+here. It was deliberately not done mid-run — the run is slow but working, and
+rewriting provider routing under it risks trading slow for broken.
+
+Remember only round 1 costs API calls (3,200 anchors). Rounds 2+ build harder
+positives from local data and fill 3,200 → 6,000 with no API calls at all.
+
+---
+
 ## Everything else is done and verified
 
 Nothing below needs work tomorrow. Verified this session, not assumed:
@@ -304,10 +375,12 @@ python scripts/build_kaggle_notebooks.py           # rebuild all four
 python scripts/build_kaggle_notebooks.py --check   # fails if a notebook is stale
 ```
 
-- Session 1 = **founder**. Watch this one to completion — every mistake you're
-  going to make (unattached secret, unaccepted Llama license, missing split)
-  surfaces here.
+- Session 1 = **founder**. **Started ~15:30 on 2026-08-13, ~3 h.** Watch it to
+  completion — every mistake you're going to make (unattached secret, missing
+  split) surfaces here. There is no license step any more: Qwen is ungated.
 - Sessions 2–4 = chanakya, gita, reflection. Same procedure, different file.
+  Accelerator is **T4 x1**, not x2 — a 7B in 4-bit NF4 with gradient
+  checkpointing fits one 16GB T4 with room to spare.
 - **Always "Save Version → Save & Run All (Commit)"**, never the interactive Run
   All button — the latter dies when you close the tab, and these are 3-hour runs.
 - GPU quota is 30 h/week. Four runs at ~3.5 h worst case is ~14 h, so all four
@@ -315,11 +388,42 @@ python scripts/build_kaggle_notebooks.py --check   # fails if a notebook is stal
 
 ---
 
+## Deployment — neither backend nor frontend is deployed yet
+
+Checked live on 2026-08-13, not assumed:
+
+- **Render: nothing exists.** `eka-backend.onrender.com` does not respond
+  (120 s, no HTTP at all). Its DNS *does* resolve, but that proves nothing —
+  `*.onrender.com` is a wildcard, and a deliberately fake hostname resolves
+  identically. There is no `render` CLI installed and no `RENDER_API_KEY`
+  anywhere, so this cannot be triggered from a shell.
+
+  It also **cannot** be fully automated even with an API key: every secret in
+  `render.yaml` is `sync: false`, which is the whole point of that file — Render
+  prompts for each value in the dashboard on first deploy so nothing sensitive
+  lands in git. First deploy is inherently a browser action. Follow
+  `infra/setup_render.md`; have the five values in that doc's table ready.
+
+  Worth sequencing after the credential rotation, not before — otherwise every
+  key gets pasted into Render twice.
+
+- **Vercel: there is no frontend to deploy.** `frontend/` holds exactly three
+  files: `.env.example`, `MIGRATION_NOTES.md`, and `src/api/ekaClient.js`. No
+  `package.json`, no `index.html`, no build. `MIGRATION_NOTES.md` says so in its
+  own opening note — the client is a library for a Base44-built app that lives
+  elsewhere, not an app in this repo. The Vercel CLI is installed and
+  authenticated as `aarti-panchal01`, so the moment a real frontend exists this
+  is a one-command deploy. Until then there is nothing to point it at.
+
+---
+
 ## Known issues, none blocking
 
 1. **Pushed — the repo is PRIVATE.**
    [github.com/Aarti-panchal01/eka](https://github.com/Aarti-panchal01/eka),
-   branch `main`, 2 commits. Private was chosen deliberately: the history is
+   branch `main`, 4 commits as of 15:45 on 2026-08-13 (the Qwen migration and
+   the triplet supervisor landed then). Private was chosen deliberately: the
+   history is
    clean, but this is unreleased work and flipping to public later is one
    click, whereas the reverse is not. Make it public whenever you want:
    ```bash
