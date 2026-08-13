@@ -39,6 +39,21 @@ NOTEBOOK_DIR = REPO / "ml" / "notebooks"
 
 MODES = ["founder", "chanakya", "gita", "reflection"]
 
+# Every notebook this builds: key -> (script in training/, notebook in
+# ml/notebooks/, title). The four personas share a naming pattern; sessions 5
+# and 6 do not, which is why this is a table rather than an f-string.
+TARGETS = {
+    **{
+        m: (f"train_{m}_lora_kaggle.py", f"eka_{m}_lora_kaggle.ipynb",
+            f"`{m}` persona QLoRA")
+        for m in MODES
+    },
+    "embeddings": ("train_embeddings_kaggle.py", "eka_embeddings_kaggle.ipynb",
+                   "embedding fine-tune (bge-base on triplets)"),
+    "classifiers": ("train_classifiers_kaggle.py", "eka_classifiers_kaggle.ipynb",
+                    "complexity + sentiment + summarizer"),
+}
+
 SECTION_RE = re.compile(r"^# SECTION (\d+) [—-] (.+)$")
 BANNER_RE = re.compile(r"^# ={10,}$")
 
@@ -147,7 +162,10 @@ def pip_packages(source: str) -> list[str]:
                     ]
                     if names:
                         return names
-    raise SystemExit("could not find the pinned package list in _pip_install()")
+    # Sessions 5 and 6 have no _pip_install(); they run their own install
+    # inline in SECTION 1. Returning [] tells build() to emit no magic install
+    # cell and to leave EKA_SKIP_INSTALL unset, so that inline install runs.
+    return []
 
 
 def header_markdown(mode: str, docstring: str) -> str:
@@ -164,19 +182,20 @@ def header_markdown(mode: str, docstring: str) -> str:
         "Upload this notebook to Kaggle and run top to bottom.",
     )
 
+    script_name, _, title = TARGETS[mode]
     return (
-        f"# Eka — `{mode}` persona QLoRA\n\n"
+        f"# Eka — {title}\n\n"
         f"{body}\n\n"
         "---\n\n"
         "**This notebook is generated.** Edit `training/"
-        f"train_{mode}_lora_kaggle.py` and re-run "
+        f"{script_name}` and re-run "
         "`python scripts/build_kaggle_notebooks.py`; edits made here are "
         "overwritten on the next build.\n"
     )
 
 
 def build(mode: str) -> dict:
-    script = TRAINING_DIR / f"train_{mode}_lora_kaggle.py"
+    script = TRAINING_DIR / TARGETS[mode][0]
     source = script.read_text(encoding="utf-8")
     docstring, sections = parse_sections(source)
     packages = pip_packages(source)
@@ -194,17 +213,21 @@ def build(mode: str) -> dict:
     # np.float_. Everything here used `==` until numpy<2.0 arrived, which is
     # why the bug stayed hidden. shlex.quote leaves `==` pins untouched and
     # only quotes the specs that need it.
-    installs = " \\\n    ".join(shlex.quote(p) for p in packages)
-    cells.append(md("## Setup — install pinned dependencies\n\nRestart-safe: re-running this cell is a no-op once the versions match."))
-    cells.append(
-        code(
-            "%%capture\n"
-            f"!pip install -q {installs}\n\n"
-            "import os\n"
-            '# SECTION 1 below re-installs unless this is set; the cell above already did it.\n'
-            'os.environ["EKA_SKIP_INSTALL"] = "1"'
+    # No _pip_install() means the script installs inline in SECTION 1 (sessions
+    # 5 and 6). Emitting an empty `!pip install -q` there would be a shell error
+    # AND would wrongly set EKA_SKIP_INSTALL, suppressing the real install.
+    if packages:
+        installs = " \\\n    ".join(shlex.quote(p) for p in packages)
+        cells.append(md("## Setup — install pinned dependencies\n\nRestart-safe: re-running this cell is a no-op once the versions match."))
+        cells.append(
+            code(
+                "%%capture\n"
+                f"!pip install -q {installs}\n\n"
+                "import os\n"
+                '# SECTION 1 below re-installs unless this is set; the cell above already did it.\n'
+                'os.environ["EKA_SKIP_INSTALL"] = "1"'
+            )
         )
-    )
 
     for section in sections:
         heading = f"## Section {section['number']} — {section['title']}"
@@ -259,7 +282,8 @@ def build(mode: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=MODES, help="build one persona instead of all four")
+    parser.add_argument("--mode", choices=sorted(TARGETS),
+                        help="build one notebook instead of all of them")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -267,13 +291,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    modes = [args.mode] if args.mode else MODES
+    modes = [args.mode] if args.mode else list(TARGETS)
     NOTEBOOK_DIR.mkdir(parents=True, exist_ok=True)
 
     stale = []
     for mode in modes:
         notebook = build(mode)
-        target = NOTEBOOK_DIR / f"eka_{mode}_lora_kaggle.ipynb"
+        target = NOTEBOOK_DIR / TARGETS[mode][1]
         rendered = json.dumps(notebook, indent=1, ensure_ascii=False) + "\n"
 
         if args.check:

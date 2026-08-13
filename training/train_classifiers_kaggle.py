@@ -52,9 +52,7 @@ You can run the parts independently: set EKA_PARTS="1", "2", "3", or "1,3".
 # SECTION 1 — INSTALL
 # ==============================================================================
 # %%capture
-# !pip install -q transformers==4.41.0 datasets==2.19.1 accelerate==0.30.0 \
-#     evaluate==0.4.2 scikit-learn==1.5.0 rouge-score==0.1.2 \
-#     huggingface-hub==0.23.2 sentencepiece
+# !pip install -q evaluate
 
 import gc
 import json
@@ -62,19 +60,17 @@ import os
 import subprocess
 import sys
 
+# ONLY `evaluate` IS MISSING. Probed on the live image 2026-08-14:
+# transformers 5.0.0, datasets 5.0.0, accelerate 1.13.0, scikit-learn 1.6.1,
+# rouge-score 0.1.2 and huggingface-hub 1.11.0 all ship with it; `evaluate`
+# does not and installs cleanly (0.4.6).
+#
+# Everything else is unpinned on purpose. Pinning a mid-2024 stack onto this
+# image is what cost the persona runs two sessions — a NumPy ABI split, then
+# `No module named 'triton.ops'` from a bitsandbytes built against Triton 2.
 if os.environ.get("EKA_SKIP_INSTALL") != "1":
     subprocess.run(
-        [
-            sys.executable, "-m", "pip", "install", "-q",
-            "transformers==4.41.0",
-            "datasets==2.19.1",
-            "accelerate==0.30.0",
-            "evaluate==0.4.2",
-            "scikit-learn==1.5.0",
-            "rouge-score==0.1.2",
-            "huggingface-hub==0.23.2",
-            "sentencepiece",
-        ],
+        [sys.executable, "-m", "pip", "install", "-q", "evaluate"],
         check=False,
     )
 
@@ -82,31 +78,68 @@ if os.environ.get("EKA_SKIP_INSTALL") != "1":
 # ==============================================================================
 # SECTION 2 — AUTH + SHARED HELPERS
 # ==============================================================================
-def _load_secrets() -> dict:
-    names = ["HF_TOKEN", "HF_USERNAME", "WANDB_API_KEY"]
-    found = {}
-    try:
-        from kaggle_secrets import UserSecretsClient
+SECRETS_DATASET = "/kaggle/input/eka-secrets/secrets.json"
 
-        client = UserSecretsClient()
+
+def _load_secrets() -> dict:
+    """Credentials from the attached dataset first, then Kaggle Secrets, then env.
+
+    `kaggle kernels push` cannot attach Kaggle Secrets and DETACHES them from a
+    notebook that had them, so an API-pushed notebook used to die here until
+    someone ticked two boxes in a browser. `dataset_sources` IS honoured by
+    push, which is what makes an unattended launch possible.
+    """
+    names = ["HF_TOKEN", "HF_USERNAME", "WANDB_API_KEY"]
+    found = {n: "" for n in names}
+
+    try:
+        with open(SECRETS_DATASET, "r", encoding="utf-8") as fh:
+            blob = json.load(fh)
         for name in names:
-            try:
-                found[name] = client.get_secret(name)
-            except Exception:
-                found[name] = os.environ.get(name, "")
-    except Exception:
-        for name in names:
+            if blob.get(name):
+                found[name] = str(blob[name]).strip()
+        print(f"\u2713 secrets from attached dataset ({SECRETS_DATASET})")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"! could not read {SECRETS_DATASET}: {type(exc).__name__}: {exc}")
+
+    if not all(found[n] for n in ("HF_TOKEN", "HF_USERNAME")):
+        try:
+            from kaggle_secrets import UserSecretsClient
+
+            client = UserSecretsClient()
+            for name in names:
+                if not found[name]:
+                    try:
+                        found[name] = client.get_secret(name)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    for name in names:
+        if not found[name]:
             found[name] = os.environ.get(name, "")
     for name, value in found.items():
         if value:
             os.environ[name] = value
+
     missing = [n for n in ("HF_TOKEN", "HF_USERNAME") if not found.get(n)]
     if missing:
-        raise SystemExit(f"Missing secret(s): {', '.join(missing)}")
+        raise SystemExit(
+            f"Missing secret(s): {', '.join(missing)}. Attach the eka-secrets "
+            f"dataset, or add them under Add-ons -> Secrets."
+        )
     return found
 
 
 SECRETS = _load_secrets()
+
+# One GPU only. Kaggle's "GPU T4 x2" is genuinely two cards and HF Trainer uses
+# every visible one via nn.DataParallel, which split tensors across cuda:0 and
+# cuda:1 and killed the founder run at its first step. Set before torch loads.
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -233,7 +266,7 @@ def part1_complexity():
         warmup_ratio=0.1,
         weight_decay=0.01,
         logging_steps=20,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,
@@ -402,7 +435,7 @@ def part2_sentiment():
         warmup_ratio=0.06,
         weight_decay=0.01,
         logging_steps=100,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,
@@ -533,7 +566,7 @@ def part3_summarizer():
         warmup_ratio=0.06,
         weight_decay=0.01,
         logging_steps=200,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,

@@ -45,56 +45,94 @@ ESTIMATED TIME ON T4
 # SECTION 1 — INSTALL
 # ==============================================================================
 # %%capture
-# !pip install -q sentence-transformers==3.0.1 datasets==2.19.1 \
-#     huggingface-hub==0.23.2 wandb==0.17.0
+# (nothing to install — see the note below)
 
 import json
 import os
 import random
-import subprocess
-import sys
+import subprocess  # noqa: F401  (kept: the builder's section parser expects it)
+import sys  # noqa: F401
 
-if os.environ.get("EKA_SKIP_INSTALL") != "1":
-    subprocess.run(
-        [
-            sys.executable, "-m", "pip", "install", "-q",
-            "sentence-transformers==3.0.1",
-            "datasets==2.19.1",
-            "huggingface-hub==0.23.2",
-            "wandb==0.17.0",
-        ],
-        check=False,
-    )
+# NOTHING IS INSTALLED HERE, DELIBERATELY.
+#
+# Probed on the live image 2026-08-14: sentence-transformers 5.4.1, datasets
+# 5.0.0, huggingface-hub 1.11.0 and torch 2.10.0+cu128 are all preinstalled.
+# The old pins (sentence-transformers==3.0.1, datasets==2.19.1) dragged a
+# mid-2024 tree backwards over a stack built for the current one, which is
+# exactly what cost the persona runs two failed sessions — a NumPy ABI split
+# and then `No module named 'triton.ops'`.
+#
+# wandb is gone too: NumPy 2 makes it unusable on this image, so it is a
+# credential and a dependency that buy nothing.
+if os.environ.get("EKA_SKIP_INSTALL") == "never":  # pragma: no cover
+    pass
 
 
 # ==============================================================================
 # SECTION 2 — AUTH
 # ==============================================================================
-def _load_secrets() -> dict:
-    names = ["HF_TOKEN", "HF_USERNAME", "WANDB_API_KEY"]
-    found = {}
-    try:
-        from kaggle_secrets import UserSecretsClient
+SECRETS_DATASET = "/kaggle/input/eka-secrets/secrets.json"
 
-        client = UserSecretsClient()
+
+def _load_secrets() -> dict:
+    """Credentials from the attached dataset first, then Kaggle Secrets, then env.
+
+    `kaggle kernels push` cannot attach Kaggle Secrets and DETACHES them from a
+    notebook that had them, so an API-pushed notebook used to die here until
+    someone ticked two boxes in a browser. `dataset_sources` IS honoured by
+    push, which is what makes an unattended launch possible.
+    """
+    names = ["HF_TOKEN", "HF_USERNAME", "WANDB_API_KEY"]
+    found = {n: "" for n in names}
+
+    try:
+        with open(SECRETS_DATASET, "r", encoding="utf-8") as fh:
+            blob = json.load(fh)
         for name in names:
-            try:
-                found[name] = client.get_secret(name)
-            except Exception:
-                found[name] = os.environ.get(name, "")
-    except Exception:
-        for name in names:
+            if blob.get(name):
+                found[name] = str(blob[name]).strip()
+        print(f"\u2713 secrets from attached dataset ({SECRETS_DATASET})")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"! could not read {SECRETS_DATASET}: {type(exc).__name__}: {exc}")
+
+    if not all(found[n] for n in ("HF_TOKEN", "HF_USERNAME")):
+        try:
+            from kaggle_secrets import UserSecretsClient
+
+            client = UserSecretsClient()
+            for name in names:
+                if not found[name]:
+                    try:
+                        found[name] = client.get_secret(name)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    for name in names:
+        if not found[name]:
             found[name] = os.environ.get(name, "")
     for name, value in found.items():
         if value:
             os.environ[name] = value
+
     missing = [n for n in ("HF_TOKEN", "HF_USERNAME") if not found.get(n)]
     if missing:
-        raise SystemExit(f"Missing secret(s): {', '.join(missing)}")
+        raise SystemExit(
+            f"Missing secret(s): {', '.join(missing)}. Attach the eka-secrets "
+            f"dataset, or add them under Add-ons -> Secrets."
+        )
     return found
 
 
 SECRETS = _load_secrets()
+
+# One GPU only. Kaggle's "GPU T4 x2" is genuinely two cards and HF Trainer uses
+# every visible one via nn.DataParallel, which split tensors across cuda:0 and
+# cuda:1 and killed the founder run at its first step. Set before torch loads.
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from huggingface_hub import HfApi, hf_hub_download, login  # noqa: E402
 
