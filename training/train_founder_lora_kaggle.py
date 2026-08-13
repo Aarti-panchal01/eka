@@ -58,9 +58,9 @@ Change MODE below to "chanakya" / "gita" / "reflection". Nothing else changes.
 # In a notebook, put this in the first cell prefixed with %%capture
 # ==============================================================================
 # %%capture
-# !pip install -q transformers==4.41.0 peft==0.11.1 trl==0.8.6 \
+# !pip install -q "numpy<2.0" transformers==4.41.0 peft==0.11.1 trl==0.8.6 \
 #     datasets==2.19.1 accelerate==0.30.0 bitsandbytes==0.43.1 \
-#     wandb==0.17.0 huggingface-hub==0.23.2
+#     wandb==0.16.6 huggingface-hub==0.23.2
 
 import os
 import subprocess
@@ -70,13 +70,27 @@ import sys
 def _pip_install() -> None:
     """Idempotent install so the script works as a plain .py run too."""
     packages = [
+        # numpy<2 leads the list because it is a constraint the rest have to
+        # resolve against, not a preference. Kaggle's image ships NumPy 2.x on
+        # Python 3.12; wandb 0.17.0 still reaches for np.float_, removed in
+        # NumPy 2.0, and the resulting AttributeError killed the founder run on
+        # 2026-08-13 before a single training step.
+        #
+        # It must be in THIS pip call, not an earlier separate one — installing
+        # the packages below afterwards would pull NumPy 2 straight back up.
+        # Everything else here is pinned to mid-2024 releases built against
+        # NumPy 1.x anyway, so this is the combination they expect.
+        "numpy<2.0",
         "transformers==4.41.0",
         "peft==0.11.1",
         "trl==0.8.6",
         "datasets==2.19.1",
         "accelerate==0.30.0",
         "bitsandbytes==0.43.1",
-        "wandb==0.17.0",
+        # Belt and braces. The numpy pin above is what actually guarantees
+        # np.float_ exists; this keeps wandb on a release from the same era
+        # as everything else.
+        "wandb==0.16.6",
         "huggingface-hub==0.23.2",
     ]
     subprocess.run(
@@ -86,6 +100,22 @@ def _pip_install() -> None:
 
 if os.environ.get("EKA_SKIP_INSTALL") != "1":
     _pip_install()
+
+# Fail in 30 seconds rather than 15 minutes in, after the model download.
+# A downgrade only affects modules not yet imported in THIS process: if
+# something pulled NumPy 2 in before this cell ran, pip reports success and the
+# import below is still 2.x. Checking is nearly free; discovering it from a
+# traceback at trainer setup is not.
+import numpy as _np  # noqa: E402
+
+if int(_np.__version__.split(".")[0]) >= 2:
+    raise SystemExit(
+        f"NumPy is {_np.__version__} in this process, but this run needs <2.0.\n"
+        "The pin installed and did not take effect — something imported NumPy\n"
+        "before this cell. Fix: Run -> Restart & Clear Cell Outputs, then run\n"
+        "again from the top (the install is cached, so it is quick)."
+    )
+print(f"✓ numpy {_np.__version__}")
 
 
 # ==============================================================================
@@ -128,12 +158,25 @@ from huggingface_hub import HfApi, login  # noqa: E402
 login(token=SECRETS["HF_TOKEN"])
 print("✓ Hugging Face authenticated")
 
-USE_WANDB = bool(SECRETS.get("WANDB_API_KEY"))
-if USE_WANDB:
-    import wandb
+# Experiment tracking is optional and must never be able to end a 3-hour run.
+# On 2026-08-13 it did exactly that: wandb reached for np.float_ under NumPy 2
+# and the AttributeError propagated straight out of the import, killing founder
+# before step 1. The pins above are the fix; this is the seatbelt for the next
+# incompatibility, which will not announce itself either. Losing the charts is
+# an annoyance; losing the session is 3 hours of a 30 h weekly quota.
+USE_WANDB = False
+if SECRETS.get("WANDB_API_KEY"):
+    try:
+        import wandb
 
-    wandb.login(key=SECRETS["WANDB_API_KEY"])
-    print("✓ WandB authenticated")
+        wandb.login(key=SECRETS["WANDB_API_KEY"])
+        USE_WANDB = True
+        print("✓ WandB authenticated")
+    except Exception as exc:
+        print(
+            f"! WandB unavailable ({type(exc).__name__}: {exc}) — "
+            f"training without experiment tracking"
+        )
 else:
     print("! WANDB_API_KEY not set — training without experiment tracking")
 
@@ -465,7 +508,13 @@ print("EKA :", tokenizer.decode(output[0][inputs["input_ids"].shape[1]:],
 print(f"{'=' * 70}\n")
 
 if USE_WANDB:
-    wandb.finish()
+    # The adapter is already pushed by this point, so a failure here costs
+    # nothing real — but an unhandled one would still mark the whole notebook
+    # failed and send you hunting through a successful 3-hour run.
+    try:
+        wandb.finish()
+    except Exception as exc:
+        print(f"! wandb.finish() failed ({type(exc).__name__}: {exc}) — ignoring")
 
 print(f"✅ {MODE} DONE. Next: train the remaining personas, then")
 print(f"   python ml/scripts/merge_lora.py --mode {MODE}")
