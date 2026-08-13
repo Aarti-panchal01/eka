@@ -398,12 +398,96 @@ def _one_call(
     return None
 
 
+# ------------------------------------------------------- paraphrase backend
+# Paraphrasing runs on its own pool, and deliberately NOT on Groq.
+#
+# Measured 2026-08-13: the triplet run through Groq's free 8B tier settled at
+# ~1.5 triplets/min with the rate limiter engaged more often than not — the
+# remaining round-1 calls were a ~16 hour job. Meanwhile the four Mistral keys
+# that carried the entire overnight generation run sat completely idle: they
+# meter per MONTH (~1B tokens each), and the rotator gives each its own
+# TokenPacer, so they pace themselves instead of 429ing.
+#
+# Mistral-only rather than the full default_providers() list. Paraphrasing is
+# high-volume and cheap per call; letting it rotate onto Google (20 requests a
+# DAY) or back onto the shared Groq budget would spend quota the persona
+# generators need for work only they can do.
+_PARAPHRASE_ROTATOR = None
+_PARAPHRASE_LOOP = None
+
+
+def _paraphrase_backend():
+    """(rotator, loop), or (None, None) if no Mistral key is configured.
+
+    One long-lived event loop rather than asyncio.run() per call: the rotator
+    owns an httpx.AsyncClient, and tearing the loop down between calls would
+    close that client out from under the next one.
+    """
+    global _PARAPHRASE_ROTATOR, _PARAPHRASE_LOOP
+    if _PARAPHRASE_ROTATOR is False:  # probed once, unavailable
+        return None, None
+    if _PARAPHRASE_ROTATOR is None:
+        try:
+            import asyncio
+
+            from _gen_providers import ProviderRotator, default_providers
+
+            pool = [p for p in default_providers() if p.name.startswith("mistral")]
+            rotator = ProviderRotator(providers=pool)
+            if not rotator.configured:
+                raise RuntimeError("no MISTRAL_API_KEY* in the environment")
+            _PARAPHRASE_LOOP = asyncio.new_event_loop()
+            _PARAPHRASE_ROTATOR = rotator
+            print(
+                f"  paraphrase pool: {len(rotator.configured)} Mistral key(s) "
+                f"— Groq is not used for this"
+            )
+        except Exception as exc:
+            print(f"  ! Mistral paraphrase pool unavailable ({exc}) — falling back to Groq")
+            _PARAPHRASE_ROTATOR = False
+            return None, None
+    return _PARAPHRASE_ROTATOR, _PARAPHRASE_LOOP
+
+
 def paraphrase(client, text: str, model: str = FAST_MODEL) -> Optional[str]:
     """Used by the triplet generator to build positives.
 
-    Same never-crash-on-429 policy as _one_call: back off and retry rather than
-    dropping the anchor, since 6000 triplets is a long unattended run.
+    Prefers the Mistral pool. `client` and `model` stay in the signature for
+    the Groq fallback, which is what runs if no Mistral key is configured.
     """
+    rotator, loop = _paraphrase_backend()
+    if rotator is not None:
+        try:
+            out, _tokens, _provider = loop.run_until_complete(
+                rotator.complete(
+                    system="You rewrite text faithfully. Return only the rewrite.",
+                    user=(
+                        "Rewrite this in different words keeping exact meaning: "
+                        f"{text}\nReturn ONLY the rewritten text, no explanation."
+                    ),
+                    max_tokens=300,
+                    temperature=0.8,
+                    # The real cost, not complete()'s default max_tokens+2000
+                    # guess. The pacer bills against this number, so a 4x
+                    # over-estimate would throttle the pool to a quarter of its
+                    # actual throughput — the exact mistake this change exists
+                    # to undo.
+                    estimate=len(text) // 4 + 400,
+                )
+            )
+        except Exception as exc:
+            print(f"  ! paraphrase failed ({type(exc).__name__}: {exc})")
+            return None
+        # complete() returns None rather than raising for provider problems.
+        return (out or "").strip().strip('"') or None
+
+    return _paraphrase_groq(client, text, model)
+
+
+def _paraphrase_groq(client, text: str, model: str = FAST_MODEL) -> Optional[str]:
+    """Original single-client path. Same never-crash-on-429 policy as
+    _one_call: back off and retry rather than dropping the anchor, since 6000
+    triplets is a long unattended run."""
     for hit in range(len(RATE_LIMIT_BACKOFFS) + 1):
         try:
             completion = client.chat.completions.create(

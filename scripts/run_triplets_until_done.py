@@ -45,16 +45,23 @@ PAUSE_BETWEEN_PASSES = 60.0
 # pacing would spend 13 hours on a 2.5 hour job. Set here rather than left to
 # the caller: across a reboot there is no caller to remember it.
 #
-# 5.0, not the 2.5 the docs suggest. Measured 2026-08-13 11:00-11:50: at 2.5s
-# the run took 24 rate-limit hits and the server's own retry-after hints came
-# back at 63-85s each, so ~13 one-minute stalls bought 20 triplets — about
-# 1.3/min against the 17/min the same setting managed an hour earlier. 2.5s
-# asks for ~24 req/min; Groq's 8B free tier meters ~6,000 TPM and a paraphrase
-# round-trip is ~500 tokens, so the real ceiling is ~12/min. This is the same
-# lesson _gen_common.py already records at the top of the file: pacing is
-# token-bound, and going "faster" than the token budget makes the run strictly
-# slower.
-GEN_SLEEP = os.environ.get("GEN_SLEEP", "5.0")
+# 2.0, measured on 2026-08-13 after paraphrasing moved off Groq onto the
+# Mistral pool. Two-minute samples against the live pool:
+#
+#     GEN_SLEEP=0.5  ->  12/min, but 12 rate-limit hits and throttle waves
+#     GEN_SLEEP=2.0  ->  10/min, and ZERO rate limits or waves
+#
+# 0.5 is nominally 20% faster and is not worth it. The waves are 5-30s dead
+# stops, the variance is much worse, and Mistral is the same pool the persona
+# generators depend on — pushing it toward a daily wall to save twelve minutes
+# on a two-hour job is the trade this repo keeps learning not to make. Override
+# with GEN_SLEEP if you want the extra 20%.
+#
+# For contrast, on Groq's free 8B tier this job ran at 1.5/min: 2.5s asked for
+# ~24 req/min against a ~6,000 TPM ceiling and collapsed under constant 429s,
+# and 5.0s settled at the same place. The ceiling was the provider, not the
+# pacing, which is why the fix was to change providers rather than keep tuning.
+GEN_SLEEP = os.environ.get("GEN_SLEEP", "2.0")
 
 TASK_NAME = "eka-triplets"
 
