@@ -34,27 +34,19 @@ published unattended, exactly as designed.
 `marker=1.0` and `unique=True` on all four. Live at
 `huggingface.co/datasets/amijackofalltrades/eka-datasets` (private).
 
-**Embedding triplets are still generating, and they are the slow item.**
-1,750/6,000 as of 15:50 on 2026-08-13. They block only Kaggle **session 5**;
-sessions 1–4 and 6 never needed them.
+**Embedding triplets are DONE — 6,000/6,000, finished 18:25 on 2026-08-13.**
+Uploaded and verified; `preflight_kaggle.py --hub` is green. **Kaggle session 5
+is no longer blocked.**
 
-The original "~2.5 h" estimate is **wrong** — see "The triplet run is the one
-unhappy thing" below. Do not plan around it finishing today.
+Validated before upload, not assumed: 6,000 rows, **3,200 unique anchors** (so
+round 1 covered every anchor exactly once and rounds 2+ supplied the rest),
+zero incomplete rows, and zero degenerate pairs where the anchor equals its own
+positive or negative. Split founder 1,864 / reflection 1,872 / chanakya 1,132 /
+gita 1,132, which tracks the persona dataset sizes.
 
-It now runs unattended as the **`eka-triplets` scheduled task**, so you do not
-start it by hand:
-
-```bash
-schtasks /Query /TN eka-triplets            # is it alive?
-tail -f ml/datasets/triplets_run.log        # what it is doing
-```
-
-When it does reach 6,000 the task deletes itself, and you then run:
-
-```bash
-python ml/scripts/upload_to_hf.py
-python scripts/preflight_kaggle.py --hub
-```
+The `eka-triplets` scheduled task deleted itself on completion, as designed —
+if `schtasks /Query /TN eka-triplets` reports nothing, that is success, not a
+missing task.
 
 ---
 
