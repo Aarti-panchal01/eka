@@ -24,6 +24,7 @@ import argparse
 import ast
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -184,7 +185,16 @@ def build(mode: str) -> dict:
 
     # Install as a real magic cell, then tell SECTION 1 to skip its own install
     # rather than paying for a second no-op pip resolve on every restart.
-    installs = " \\\n    ".join(packages)
+    #
+    # QUOTE EVERY SPEC. `!pip` hands the line to a shell, so a bare `numpy<2.0`
+    # is a redirect from a file named `2.0` — bash aborts with "No such file or
+    # directory", pip never runs, and %%capture swallows the whole thing. The
+    # 2026-08-13 founder session died that way: none of the pins installed, so
+    # it trained against Kaggle's preinstalled wandb and NumPy 2 and blew up on
+    # np.float_. Everything here used `==` until numpy<2.0 arrived, which is
+    # why the bug stayed hidden. shlex.quote leaves `==` pins untouched and
+    # only quotes the specs that need it.
+    installs = " \\\n    ".join(shlex.quote(p) for p in packages)
     cells.append(md("## Setup — install pinned dependencies\n\nRestart-safe: re-running this cell is a no-op once the versions match."))
     cells.append(
         code(

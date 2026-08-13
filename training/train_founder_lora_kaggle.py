@@ -101,21 +101,30 @@ def _pip_install() -> None:
 if os.environ.get("EKA_SKIP_INSTALL") != "1":
     _pip_install()
 
-# Fail in 30 seconds rather than 15 minutes in, after the model download.
-# A downgrade only affects modules not yet imported in THIS process: if
-# something pulled NumPy 2 in before this cell ran, pip reports success and the
-# import below is still 2.x. Checking is nearly free; discovering it from a
-# traceback at trainer setup is not.
+# Report which NumPy actually won, in 30 seconds, rather than finding out from
+# a traceback 15 minutes in after the model download. A downgrade only affects
+# modules not yet imported in THIS process, so if anything pulled NumPy 2 in
+# before this ran, pip can report success and the import below still be 2.x.
+#
+# This warns rather than exits. Under NumPy 2 the only thing here that actually
+# breaks is wandb (np.float_), which is optional and which SECTION 2 disables
+# on its own — so stopping the run would cost a GPU session to protect a
+# progress chart. Nothing else in the pinned set touches the removed aliases.
 import numpy as _np  # noqa: E402
 
-if int(_np.__version__.split(".")[0]) >= 2:
-    raise SystemExit(
-        f"NumPy is {_np.__version__} in this process, but this run needs <2.0.\n"
-        "The pin installed and did not take effect — something imported NumPy\n"
-        "before this cell. Fix: Run -> Restart & Clear Cell Outputs, then run\n"
-        "again from the top (the install is cached, so it is quick)."
+NUMPY_2 = int(_np.__version__.split(".")[0]) >= 2
+if NUMPY_2:
+    print(
+        f"! numpy {_np.__version__} is live — the <2.0 pin did not take effect.\n"
+        "  Either the install cell failed or numpy was imported before it.\n"
+        "  Continuing without experiment tracking; training is unaffected.\n"
+        "\n"
+        "  Do NOT restart the kernel to force the downgrade. A restart inside a\n"
+        "  'Save & Run All (Commit)' run ends the session, and on the way back\n"
+        "  up this cell would simply restart it again."
     )
-print(f"✓ numpy {_np.__version__}")
+else:
+    print(f"✓ numpy {_np.__version__}")
 
 
 # ==============================================================================
@@ -165,7 +174,16 @@ print("✓ Hugging Face authenticated")
 # incompatibility, which will not announce itself either. Losing the charts is
 # an annoyance; losing the session is 3 hours of a 30 h weekly quota.
 USE_WANDB = False
-if SECRETS.get("WANDB_API_KEY"):
+if not SECRETS.get("WANDB_API_KEY"):
+    print("! WANDB_API_KEY not set — training without experiment tracking")
+elif NUMPY_2:
+    # Known-bad rather than discovered-bad: wandb reaches for np.float_, which
+    # NumPy 2.0 removed. Skipping the import beats catching its traceback.
+    print(
+        "! skipping wandb — numpy 2 is live in this session and wandb still "
+        "uses np.float_. Training runs, without experiment tracking."
+    )
+else:
     try:
         import wandb
 
@@ -177,8 +195,6 @@ if SECRETS.get("WANDB_API_KEY"):
             f"! WandB unavailable ({type(exc).__name__}: {exc}) — "
             f"training without experiment tracking"
         )
-else:
-    print("! WANDB_API_KEY not set — training without experiment tracking")
 
 
 # ==============================================================================
