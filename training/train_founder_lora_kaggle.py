@@ -58,9 +58,7 @@ Change MODE below to "chanakya" / "gita" / "reflection". Nothing else changes.
 # In a notebook, put this in the first cell prefixed with %%capture
 # ==============================================================================
 # %%capture
-# !pip install -q transformers==4.41.0 peft==0.11.1 trl==0.8.6 \
-#     datasets==2.19.1 accelerate==0.30.0 bitsandbytes==0.43.1 \
-#     huggingface-hub==0.23.2
+# !pip install -q trl bitsandbytes
 
 import os
 import subprocess
@@ -70,31 +68,26 @@ import sys
 def _pip_install() -> None:
     """Idempotent install so the script works as a plain .py run too."""
     packages = [
-        # DO NOT PIN NUMPY HERE. Kaggle's image is built around NumPy 2 —
-        # pandas, pyarrow and torch all ship compiled against it — so a
-        # numpy<2.0 pin cannot fix the image, it can only break it. pip
-        # downgrades the on-disk build while the kernel already holds 2.x in
-        # memory, and the next C extension loaded dies with:
+        # INSTALL AS LITTLE AS POSSIBLE. Everything else comes from Kaggle's
+        # image, which is internally consistent; our pins were not, and every
+        # one of them dragged a dependency tree backwards over a stack built
+        # for the current versions. Two failures came from exactly that:
         #
-        #     ValueError: numpy.dtype size changed, may indicate binary
-        #     incompatibility. Expected 96 from C header, got 88 from PyObject
+        #   numpy<2.0     -> ValueError: numpy.dtype size changed (mixed ABI,
+        #                    because the kernel already held 2.x in memory)
+        #   bitsandbytes  -> RuntimeError: No module named 'triton.ops'
+        #     ==0.43.1       (a mid-2024 build against a Triton 3.6 image)
         #
-        # Measured 2026-08-13: the pin installed cleanly, then killed the run
-        # one cell later at `from datasets import load_dataset`, which pulls in
-        # pandas and therefore numpy.random.mtrand.
+        # Probed live on 2026-08-13, the image carries transformers 5.0.0,
+        # datasets 5.0.0, peft 0.19.1, accelerate 1.13.0, torch 2.10.0+cu128,
+        # triton 3.6.0 and numpy 2.0.2. trl and bitsandbytes are the only two
+        # things genuinely missing, and unpinned they resolve to trl 1.10.0 /
+        # bitsandbytes 0.50.0, which import cleanly against that image.
         #
-        # wandb is deliberately absent too. Kaggle's preinstalled wandb reaches
-        # for np.float_ under Kaggle's own NumPy 2 and raises on import, and
-        # every wandb old enough to avoid that expects NumPy 1 — which puts us
-        # straight back in the paragraph above. Tracking is optional; SECTION 2
-        # skips it and the run keeps its GPU session.
-        "transformers==4.41.0",
-        "peft==0.11.1",
-        "trl==0.8.6",
-        "datasets==2.19.1",
-        "accelerate==0.30.0",
-        "bitsandbytes==0.43.1",
-        "huggingface-hub==0.23.2",
+        # If you pin anything here again, check it against the image first —
+        # scripts to probe it are cheap and a wasted GPU session is not.
+        "trl",
+        "bitsandbytes",
     ]
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "-q", *packages], check=False
@@ -302,7 +295,6 @@ from transformers import (  # noqa: E402
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    TrainingArguments,
 )
 
 bnb_config = BitsAndBytesConfig(
@@ -370,9 +362,14 @@ model.print_trainable_parameters()  # expect ~40M trainable / ~0.5% of 7B
 # ==============================================================================
 # SECTION 8 — TRAIN
 # ==============================================================================
-from trl import SFTTrainer  # noqa: E402
+from trl import SFTConfig, SFTTrainer  # noqa: E402
 
-training_args = TrainingArguments(
+# SFTConfig replaces TrainingArguments and absorbs what used to be passed to
+# SFTTrainer directly. In trl 1.x, dataset_text_field / packing / max_length
+# all live on the config, `max_seq_length` no longer exists (it is
+# `max_length`), and transformers 5 renamed `evaluation_strategy` to
+# `eval_strategy`. Verified against the live Kaggle image, not from memory.
+training_args = SFTConfig(
     output_dir=OUTPUT_DIR,
     num_train_epochs=EPOCHS,
     per_device_train_batch_size=BATCH_SIZE,
@@ -389,7 +386,7 @@ training_args = TrainingArguments(
     bf16=SUPPORTS_BF16,
     optim="paged_adamw_8bit",
     logging_steps=10,
-    evaluation_strategy="steps",
+    eval_strategy="steps",
     eval_steps=EVAL_STEPS,
     save_strategy="steps",
     save_steps=SAVE_STEPS,
@@ -401,6 +398,10 @@ training_args = TrainingArguments(
     run_name=RUN_NAME,
     seed=42,
     group_by_length=True,  # big speedup: batches similar-length sequences
+    # These four moved here from the SFTTrainer(...) call in trl 1.x.
+    dataset_text_field="text",
+    max_length=MAX_SEQ_LEN,
+    packing=False,  # persona examples are short; packing blurs turn boundaries
 )
 
 trainer = SFTTrainer(
@@ -408,10 +409,7 @@ trainer = SFTTrainer(
     args=training_args,
     train_dataset=dataset["train"],
     eval_dataset=dataset["validation"],
-    tokenizer=tokenizer,
-    dataset_text_field="text",
-    max_seq_length=MAX_SEQ_LEN,
-    packing=False,  # persona examples are short; packing blurs turn boundaries
+    processing_class=tokenizer,  # was tokenizer=, removed in trl 1.x
 )
 
 print(f"\n{'=' * 70}")
