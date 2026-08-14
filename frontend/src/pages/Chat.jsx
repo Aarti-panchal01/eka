@@ -62,13 +62,23 @@ export default function Chat({ mode, language, health, newChatToken }) {
       .getMessages(saved, 200)
       .then((rows) => {
         if (!alive) return;
-        const history = (Array.isArray(rows) ? rows : (rows?.items ?? [])).map(
-          (m) => ({
-            role: m.role === "user" ? "user" : "eka",
-            content: m.content ?? m.text ?? "",
-            mode: m.mode || mode,
-          })
-        );
+        // MessageResponse is one row PER TURN, holding both halves as
+        // `user_message` and `eka_response` — there is no role/content field.
+        // Reading m.content gave every row an empty eka bubble with a mode
+        // label under it, which is exactly what a resumed chat looked like.
+        const history = [];
+        for (const row of Array.isArray(rows) ? rows : (rows?.items ?? [])) {
+          if (row.user_message) {
+            history.push({ role: "user", content: row.user_message });
+          }
+          if (row.eka_response) {
+            history.push({
+              role: "eka",
+              content: row.eka_response,
+              mode: row.mode || mode,
+            });
+          }
+        }
         setMessages(history);
         setResumed(history.length > 0);
       })
@@ -113,9 +123,17 @@ export default function Chat({ mode, language, health, newChatToken }) {
       try {
         playback.current?.stop?.();
         const blob = await ekaAPI.synthesize(text, forMode, language);
+        // Logged because "is it even playing?" is otherwise unanswerable: a
+        // 0-byte blob, a blocked autoplay and a dead Sarvam key all look
+        // identical from the outside — silence.
+        console.info(
+          `[eka voice] ${forMode}/${language} — ${blob.size} bytes, playing`
+        );
         playback.current = ekaAPI.playAudio(blob);
         await playback.current;
-      } catch {
+        console.info("[eka voice] playback finished");
+      } catch (err) {
+        console.warn("[eka voice] failed:", err);
         setToast("Voice output unavailable right now.");
       }
     },

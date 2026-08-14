@@ -38,22 +38,38 @@ _IS_QUESTION = re.compile(r"[?？]\s*$")
 # pitch is a FLOAT IN [-1, 1], not semitones — the API rejects anything above
 # 1 with "pitch: Input should be less than or equal to 1". pace accepted the
 # whole 0.3-3.0 range tested; these values stay conservative.
+# MODEL AND SPEAKERS MUST AGREE, so the model is pinned here next to the
+# speaker table rather than read from config. Probed 2026-08-14: valid models
+# are bulbul:v2, bulbul:v3-beta and bulbul:v3 — there is no v4 — and each has
+# its OWN roster. v2's anushka/karun/hitesh 400 on v3, and v3's names 400 on
+# v2, so a model set in .env with speakers set in code is a guaranteed outage.
+TTS_MODEL = "bulbul:v3"
+
+# v3 is the newer, markedly less synthetic voice set, and it is the actual
+# answer to "sounds robotic" — far more than any parameter tuning on v2.
+#
+# The trade: v3 REJECTS pitch and loudness outright ("Pitch and loudness
+# parameters are currently not supported for the Bulbul V3 model"), so the
+# question-lift by pitch is not available. Question intonation now comes from
+# the model reading the question mark itself, helped by keeping questions in
+# their own request. pace still works and is the main dial: measured 0.8 ->
+# 3.6s and 1.1 -> 1.76s on the same line.
 VOICE_PROFILES: Dict[str, Dict] = {
-    # Energetic, front-footed. Slight lift so it does not read as bored.
-    "founder": {"speaker": "karun", "pace": 1.0, "pitch": 0.2},
+    # Energetic, front-footed.
+    "founder": {"speaker": "aditya", "pace": 1.1},
     # Deliberate. The pauses are the point.
-    "chanakya": {"speaker": "hitesh", "pace": 0.9, "pitch": 0.0},
+    "chanakya": {"speaker": "ashutosh", "pace": 0.9},
     # Warm and unhurried.
-    "gita": {"speaker": "anushka", "pace": 0.85, "pitch": 0.05},
-    # Slowest, calmest — it is asking, not telling.
-    "reflection": {"speaker": "manisha", "pace": 0.8, "pitch": -0.05},
+    "gita": {"speaker": "priya", "pace": 0.85},
+    # Slowest and calmest — it is asking, not telling.
+    "reflection": {"speaker": "kavya", "pace": 0.75},
 }
 _DEFAULT_PROFILE = VOICE_PROFILES["reflection"]
 
-# A question read at statement pitch is the single thing that makes synthetic
-# speech sound robotic. Bumping the whole clause is cruder than real prosody
-# but it is audibly better, and it costs one extra request per question run.
-_QUESTION_PITCH_LIFT = 0.3
+# Ellipses buy real breathing room: the same two sentences run 2.48s plain and
+# 3.6s with "..." between them. Applied only to sentence ends, never inside a
+# clause, so it lengthens pauses without slurring the delivery.
+_PAUSE_SENTENCE_END = re.compile(r"(?<=[.!])\s+(?=[A-Zऀ-ॿಀ-೿])")
 
 SUPPORTED_LANGUAGES = ("en-IN", "hi-IN", "kn-IN")
 
@@ -96,13 +112,13 @@ class TTSService:
 
         audio_parts: List[bytes] = []
         for index, (chunk, is_question) in enumerate(chunks):
-            pitch = profile["pitch"] + (_QUESTION_PITCH_LIFT if is_question else 0.0)
             part = await self._request(
-                chunk,
+                self._add_pauses(chunk),
                 speaker=profile["speaker"],
                 language=language,
-                pace=profile["pace"],
-                pitch=max(-1.0, min(1.0, pitch)),
+                # A question read at full pace lands flat. Easing off slightly
+                # is the closest thing to a rising inflection that v3 exposes.
+                pace=profile["pace"] * (0.95 if is_question else 1.0),
             )
             if part is None:
                 # Partial audio beats no audio — return what we have.
@@ -134,7 +150,6 @@ class TTSService:
         speaker: str,
         language: str,
         pace: float = 1.0,
-        pitch: float = 0.0,
     ) -> Optional[bytes]:
         headers = {
             "api-subscription-key": settings.SARVAM_API_KEY,
@@ -144,13 +159,14 @@ class TTSService:
         common = {
             "target_language_code": language,
             "speaker": speaker,
-            "model": settings.SARVAM_TTS_MODEL,
+            "model": TTS_MODEL,
             "speech_sample_rate": settings.SARVAM_SAMPLE_RATE,
             # Expands numerals, dates and abbreviations into speakable words.
             # Without it "10" reads as a digit and the line stumbles.
             "enable_preprocessing": True,
-            "pace": pace,
-            "pitch": pitch,
+            # No pitch/loudness here — v3 rejects the whole request if they are
+            # present, rather than ignoring them.
+            "pace": round(pace, 2),
         }
 
         # Sarvam has shipped two request shapes across model versions. Try the
@@ -208,6 +224,16 @@ class TTSService:
             return None
 
     # ------------------------------------------------------------ helpers
+    @staticmethod
+    def _add_pauses(text: str) -> str:
+        """Turn sentence breaks into audible pauses.
+
+        Measured: the same two sentences run 2.48s plain and 3.6s with "..."
+        between them. Only applied between sentences, never mid-clause, so it
+        buys breathing room without making the delivery drag.
+        """
+        return _PAUSE_SENTENCE_END.sub("... ", text)
+
     @classmethod
     def _prosody_chunks(cls, text: str, limit: int) -> List[Tuple[str, bool]]:
         """Split into (chunk, is_question) runs, batching same-type sentences.
