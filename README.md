@@ -2,7 +2,7 @@
 
 # Eka
 
-**Your lifelong AI companion — four personas, semantic memory that survives every
+**Your lifelong AI companion: four personas, semantic memory that survives every
 conversation, and an Indian voice in your language.**
 
 [![Live](https://img.shields.io/badge/demo-the--eka.vercel.app-f5a623?style=flat-square)](https://the-eka.vercel.app)
@@ -42,7 +42,7 @@ decided its retrieval budget.</em></p>
 [Under the hood](#under-the-hood) ·
 [Trained models](#trained-models) ·
 [Evaluation](#evaluation) ·
-[Fine-tuning](#fine-tuning--validated-paused) ·
+[Fine-tuning](#fine-tuning-validated-paused) ·
 [Status](#status) ·
 [Run it](#run-it) ·
 [Engineering notes](#engineering-notes)
@@ -51,14 +51,14 @@ decided its retrieval budget.</em></p>
 
 ## What Eka does differently
 
-- **Remembers across conversations** — semantic RAG over your own history, not
-  a rolling context window
-- **Routes by complexity** — four levels, and cheap questions never pay for
-  deep retrieval
-- **Ranks memories by usefulness**, not just similarity — a learned ranker,
-  not cosine
-- **Speaks your language** — English, Hindi, Kannada, with per-persona voices
-- **Four distinct minds**, each with its own dataset, prompt and voice
+- **Remembers across conversations.** Semantic RAG over your own history, not
+  a rolling context window.
+- **Routes by complexity.** Four levels, and cheap questions never pay for
+  deep retrieval.
+- **Ranks memories by usefulness**, not just similarity. A learned ranker,
+  not cosine.
+- **Speaks your language.** English, Hindi, Kannada, with per-persona voices.
+- **Four distinct minds**, each with its own dataset, prompt and voice.
 
 ## The four personas
 
@@ -103,7 +103,7 @@ these systems slow and expensive.
 
 ## Under the hood
 
-### Data pipeline — 3,200 pairs, quality-gated
+### Data pipeline: 3,200 pairs, quality-gated
 
 Anyone can prompt an LLM into 3,200 rows. The work is refusing most of them.
 
@@ -119,17 +119,17 @@ keys, Google, OpenRouter) with per-key token pacing. Every pair passes five
 gates plus an LLM judge before it can reach training, and a persona that
 finishes short is regenerated rather than shipped:
 
-- **Persona markers** — does the response actually behave like the persona
-- **Length floors and ceilings** — 150–250 words, enforced
-- **One-question discipline** — exactly one closing question, not three
-- **Advice-leakage detection** — `reflection` must never give advice, and a
-  regex misses paraphrase, so an 8B LLM judge classifies it semantically
-- **Near-duplicate rejection** — Jaccard at **0.75**
+- **Persona markers.** Does the response actually behave like the persona.
+- **Length floors and ceilings.** 150-250 words, enforced.
+- **One-question discipline.** Exactly one closing question, not three.
+- **Advice-leakage detection.** `reflection` must never give advice, and a
+  regex misses paraphrase, so an 8B LLM judge classifies it semantically.
+- **Near-duplicate rejection.** Jaccard at **0.75**.
 
 **That threshold is derived, not chosen for looking round.** At 0.75: 100%
 recall on clones, 0% false positives against the hardest real collision in the
 corpus. At 0.85, clone recall collapses to **21%**. Jaccard is always the lower
-of the two measures — for equal-sized sets, cosine 0.75 is Jaccard 0.60 — which
+of the two measures (for equal-sized sets, cosine 0.75 is Jaccard 0.60), which
 is why the number cannot be lifted from a paper that used cosine.
 
 The gate refuses to publish anything not marked `ok_to_train`, because the next
@@ -143,7 +143,7 @@ conversations.
 
 That trains the retriever on the confusion that actually matters here. Generic
 negatives teach "these two texts are unrelated", which cosine similarity
-already knows. Persona negatives teach something harder — *the same topic,
+already knows. Persona negatives teach something harder: *the same topic,
 discussed in a different register, is not the memory you want.* Founder talking
 about failure and Gita talking about failure are semantically adjacent and
 functionally opposite.
@@ -160,13 +160,13 @@ provenance. Reproducible with `python training/train_ranker_local.py`.
 
 Its honest weakness, stated because a reader will find it: it is trained on
 synthetic data from `make_dataset()`. `feedback_service` is now collecting
-implicit relevance labels from live sessions — which memories were retrieved,
-and whether the user stayed on that thread — to retrain against real signal.
+implicit relevance labels from live sessions (which memories were retrieved,
+and whether the user stayed on that thread) to retrain against real signal.
 
 ### Voice
 
-- **STT** — Sarvam `saarika:v2.5`, plus browser Web Speech for zero-latency dictation
-- **TTS** — Sarvam `bulbul:v3`, per-persona speaker and pace:
+- **STT.** Sarvam `saarika:v2.5`, plus browser Web Speech for zero-latency dictation.
+- **TTS.** Sarvam `bulbul:v3`, per-persona speaker and pace:
 
 | persona | speaker | pace | same line |
 |---|---|---:|---:|
@@ -176,7 +176,7 @@ and whether the user stayed on that thread — to retrain against real signal.
 | reflection | kavya | 0.75 | 6.47s |
 
 Questions are sent as their own request so they carry their own intonation.
-Sentence breaks become `...` for real pauses — measured 2.48s → 3.6s on the
+Sentence breaks become `...` for real pauses, measured 2.48s → 3.6s on the
 same two sentences.
 
 ---
@@ -187,12 +187,12 @@ Four supervised models, trained and live on the Hub.
 
 | Model | Task | Result | Data |
 |---|---|---|---|
-| **eka-sentiment** — DistilRoBERTa | 6-class emotion | **72.4% acc · 0.721 F1-weighted** | GoEmotions, 42k train / 5.2k test |
-| **eka-summarizer** — T5-small | dialogue summary | **ROUGE-L 37.01 · ROUGE-1 44.37** | SAMSum, 14.7k |
-| **eka-complexity** — DistilBERT | 4-class routing | 100% acc — *see caveat* | 2,000 synthetic |
-| **eka-ranker** — LightGBM | memory rerank | **NDCG@3 0.9466** | synthetic |
+| **eka-sentiment** (DistilRoBERTa) | 6-class emotion | **72.4% acc · 0.721 F1-weighted** | GoEmotions, 42k train / 5.2k test |
+| **eka-summarizer** (T5-small) | dialogue summary | **ROUGE-L 37.01 · ROUGE-1 44.37** | SAMSum, 14.7k |
+| **eka-complexity** (DistilBERT) | 4-class routing | 100% acc, *see caveat* | 2,000 synthetic |
+| **eka-ranker** (LightGBM) | memory rerank | **NDCG@3 0.9466** | synthetic |
 
-### Sentiment — the honest result
+### Sentiment: the honest result
 
 72.4% on six classes, on a real external benchmark, with the confusion matrix
 published rather than summarised:
@@ -207,12 +207,12 @@ published rather than summarised:
 | motivated | 0.700 | **0.378** | 0.491 | 74 |
 
 The weak rows are the interesting ones. `motivated` has 74 test examples and
-recall of 0.378 — it is mostly being read as `positive`, which is a defensible
+recall of 0.378. It is mostly being read as `positive`, which is a defensible
 confusion and a class-imbalance problem, not a modelling mystery. `reflective`
 overlaps `neutral` for the same reason. Both are stated rather than hidden
 behind the 72.4%.
 
-### Complexity — 100%, and why that number is not a win
+### Complexity: 100%, and why that number is not a win
 
 The classifier scores 1.0000 on held-out data. That is a **property of the
 dataset, not the model.**
@@ -221,29 +221,29 @@ Word count per class, measured:
 
 | class | word range | median |
 |---|---:|---:|
-| simple | 1–7 | 3 |
-| normal | 5–17 | 6 |
-| complex | 21–38 | 27 |
-| deep | 59–76 | 69 |
+| simple | 1-7 | 3 |
+| normal | 5-17 | 6 |
+| complex | 21-38 | 27 |
+| deep | 59-76 | 69 |
 
 `normal→complex` and `complex→deep` do not overlap at all. **A three-threshold
 word-count rule scores 93.6% on the same data.** DistilBERT's extra 6.4 points
 are real but modest, and what it mostly learned was to count.
 
-The generator also left lexical tells — every `deep` example follows *"I realize
-I always X when Y. It happened with Z"*. So the honest reading is: the router
-works in production and routes correctly, and its accuracy figure measures how
-separable the synthetic data is. Validating it needs real user queries, which
-is what the deployed logging now collects.
+The generator also left lexical tells: every `deep` example follows *"I realize
+I always X when Y. It happened with Z"*. So the honest reading is that the
+router works in production and routes correctly, and its accuracy figure
+measures how separable the synthetic data is. Validating it needs real user
+queries, which is what the deployed logging now collects.
 
-That caveat applies to the ranker too — same synthetic-data provenance, same
+That caveat applies to the ranker too: same synthetic-data provenance, same
 reason `feedback_service` exists.
 
 ---
 
 ## Evaluation
 
-n=50 held-out prompts from `founder_val.jsonl` — the split that was actually
+n=50 held-out prompts from `founder_val.jsonl`, the split that was actually
 withheld from training. Four mechanical checks per response, no judge model.
 `gold` scores the dataset's own answers, as an upper bound.
 
@@ -252,17 +252,17 @@ withheld from training. Four mechanical checks per response, no judge model.
 | Training data (gold) | **94%** (3.74/4) | 78% | 100% | 96% | 100% | 189 |
 | Base + prompt, no RAG | **93%** (3.73/4) | 100% | 100% | 100% | 73% | 159 |
 | RAG + ranker (deployed) | **78%** (3.14/4) | 90% | 82% | 82% | 60% | 215 |
-| Fine-tuned + RAG + ranker | _pending_ | — | — | — | — | — |
+| Fine-tuned + RAG + ranker | _pending_ | n/a | n/a | n/a | n/a | n/a |
 
 | Configuration | Memories retrieved | Precision@3 | Median latency |
 |---|---:|---|---:|
-| No RAG | — | — | **1,168 ms** |
+| No RAG | n/a | n/a | **1,168 ms** |
 | RAG + ranker | 4.7 | _needs labels_ | **16,796 ms** |
 
 ### What this actually says
 
 **A base model with the persona prompt already scores 93% against gold's 94%.**
-On these four checks, prompting is essentially at the ceiling — which sets a
+On these four checks, prompting is essentially at the ceiling, which sets a
 real bar for any fine-tune to clear rather than assuming it helps. Finding that
 out before spending GPU hours is the entire point of building the harness
 first.
@@ -274,7 +274,7 @@ first.
 Fixing it means pinning both rows to the same model.
 
 **These checks measure format, not substance.** The base model is *more*
-mechanically compliant than gold — 100% of its answers end in a question
+mechanically compliant than gold: 100% of its answers end in a question
 against gold's 78%. A fine-tune that copies the training distribution would
 score slightly lower here and might still be better. Judging that needs blind
 pairwise preference, which is the next thing to build.
@@ -287,26 +287,26 @@ Reproduce: `python ml/eval/eval_harness.py`
 
 ---
 
-## Fine-tuning — validated, paused
+## Fine-tuning: validated, paused
 
 QLoRA fine-tuning validated end to end on a Colab T4: 4-bit NF4 load, LoRA
 attach (**20,185,088 trainable, 0.264% of 7,635,801,600**), optimizer steps
 executing at a measured **304 s/step**.
 
 Config, every value chosen from measurement: **r=8, α=16, 2 epochs, effective
-batch 16, seq 1152**. That sequence length is not a guess — the longest example
+batch 16, seq 1152**. That sequence length is not a guess. The longest example
 in any split is 1,078 tokens, and the original 2,048 was pure padding cost, so
 roughly half of every batch was pad tokens paid for at full price.
 
 **Full adapter training is paused on session constraints, not pipeline faults.**
 At 304 s/step a T4 needs ~9.5h for the four personas' 318 steps, against a free
 tier that caps near 12h and drops idle sessions well before that. The runs that
-died died to a session cap and a GPU-quota exhaustion; every code-level failure
-along the way — a stale r=16 checkpoint, a traceback pinning 7.9GB of GPU past
-the failure that caused it — is fixed and regression-tested in
+died died to a session cap and a GPU-quota exhaustion. Every code-level failure
+along the way (a stale r=16 checkpoint, a traceback pinning 7.9GB of GPU past
+the failure that caused it) is fixed and regression-tested in
 `ml/tests/test_checkpoint_guard.py`.
 
-**Personas today are served via system prompts against Qwen2.5-7B-Instruct —
+**Personas today are served via system prompts against Qwen2.5-7B-Instruct,
 functionally complete and deployed.** That is not a placeholder for the
 fine-tune so much as the thing the fine-tune has to beat: the eval harness
 above measured prompting at **93%** against the training data's own **94%**,
@@ -320,21 +320,21 @@ fills its pending row in the eval table.
 
 | Component | State |
 |---|---|
-| Data pipeline — 3,200 gated pairs, 6,000 triplets | **done, on the Hub** |
-| Sentiment — DistilRoBERTa, 72.4% on GoEmotions | **trained, on the Hub** |
-| Summarizer — T5-small, ROUGE-L 37.01 on SAMSum | **trained, on the Hub** |
-| Complexity router — DistilBERT | **trained, on the Hub** (see caveat) |
-| LightGBM ranker — NDCG@3 0.9466 | **trained, deployed, reproducible** |
+| Data pipeline: 3,200 gated pairs, 6,000 triplets | **done, on the Hub** |
+| Sentiment: DistilRoBERTa, 72.4% on GoEmotions | **trained, on the Hub** |
+| Summarizer: T5-small, ROUGE-L 37.01 on SAMSum | **trained, on the Hub** |
+| Complexity router: DistilBERT | **trained, on the Hub** (see caveat) |
+| LightGBM ranker: NDCG@3 0.9466 | **trained, deployed, reproducible** |
 | Evaluation harness + ablation table | **done, results published above** |
 | Implicit relevance logging | **live, collecting** |
 | Backend, RAG, voice, 5-screen UI | **done, deployed** |
 | QLoRA training pipeline | **validated end to end on T4, 304 s/step** |
-| Persona adapters | **paused — served via system prompts, deployed** |
+| Persona adapters | **paused, served via system prompts, deployed** |
 | Embedding fine-tune | **script written, not trained** |
 
 Personas today run from system prompts against Qwen2.5-7B via Groq, which is
 why the product works end to end right now. Complexity and sentiment run
-heuristic implementations in production — the free tier has 512MB, and `torch`
+heuristic implementations in production. The free tier has 512MB, and `torch`
 plus `transformers` resident does not fit alongside FastAPI.
 
 ---
@@ -348,8 +348,8 @@ plus `transformers` resident does not fit alongside FastAPI.
 | Database | Supabase (PostgreSQL), 8 tables, alembic |
 | Vector DB | Qdrant Cloud, 768-dim |
 | LLM | Qwen2.5-7B-Instruct via Groq |
-| Voice | Sarvam AI — Bulbul v3, Saarika v2.5 |
-| Training | Colab T4 — QLoRA via TRL + PEFT, classifiers via Transformers |
+| Voice | Sarvam AI: Bulbul v3, Saarika v2.5 |
+| Training | Colab T4, QLoRA via TRL + PEFT, classifiers via Transformers |
 | Deploy | Vercel + Render |
 
 ---
@@ -389,7 +389,7 @@ python scripts/build_colab_notebooks.py --check   # fails if a notebook drifted
 ```
 
 Notebooks in `ml/notebooks/` are generated from `training/*.py`. Edit the `.py`,
-never the `.ipynb` — `--check` fails the moment the two disagree.
+never the `.ipynb`. `--check` fails the moment the two disagree.
 
 ---
 
@@ -407,7 +407,7 @@ Written into the code as comments so they are not rediscovered:
 - **Verify the artifact, not the exit code.** A training notebook can finish
   cleanly having pushed nothing at all.
 - **A caught exception holds the GPU.** Its traceback keeps the failing frame
-  alive, and with it a 7.9GB model — so the persona that OOMs is the one
+  alive, and with it a 7.9GB model, so the persona that OOMs is the one
   *after* the one that broke.
 - **A field that never enters the app cannot leak.** Routing internals are
   stripped in the API client, not hidden in the view.
@@ -416,7 +416,8 @@ Written into the code as comments so they are not rediscovered:
 
 ## Built by
 
-**Aarti Panchal** — B.Tech AI & ML, PES University Bengaluru
+**Aarti Panchal**
+B.Tech AI & ML, PES University Bengaluru
 C4GT DMP '26 Fellow
 
 [LinkedIn](https://linkedin.com/in/aarti-panchal) ·
@@ -429,6 +430,6 @@ Licensed under [MIT](LICENSE).
 
 <div align="center">
 
-*Eka is Sanskrit for "one" — the one companion that knows you completely.*
+*Eka is Sanskrit for "one". The one companion that knows you completely.*
 
 </div>
