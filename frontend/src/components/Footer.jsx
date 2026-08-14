@@ -1,6 +1,7 @@
 /**
  * Site footer. Deliberately quiet — one line, small, low contrast, so it never
- * competes with the conversation above it.
+ * competes with the conversation above it. Identity left, attribution and
+ * links grouped right so the eye lands on one cluster rather than three.
  */
 export default function Footer() {
   return (
@@ -10,11 +11,10 @@ export default function Footer() {
           <span className="text-gold">◆</span> Eka — Your lifelong AI companion
         </span>
 
-        <span className="mx-auto">
-          Built with <span className="text-red-400">♥</span> by Aarti Panchal
-        </span>
+        <span className="ml-auto flex items-center gap-3">
+          <span>Built by Aarti Panchal</span>
+          <span className="text-edge">|</span>
 
-        <span className="flex items-center gap-3">
           {/* rel=noreferrer alongside _blank: without it the opened tab gets a
               handle back to this one via window.opener. */}
           <a
@@ -29,6 +29,7 @@ export default function Footer() {
             </svg>
             <span className="sr-only">LinkedIn</span>
           </a>
+
           <a
             href="https://github.com/Aarti-panchal01"
             target="_blank"
