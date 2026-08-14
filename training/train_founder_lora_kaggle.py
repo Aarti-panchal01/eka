@@ -236,11 +236,22 @@ DATASET_REPO = f"{HF_USERNAME}/eka-datasets"
 OUTPUT_REPO = f"{HF_USERNAME}/eka-{MODE}-qwen"
 OUTPUT_DIR = f"/kaggle/working/{MODE}_lora"
 
-MAX_SEQ_LEN = 2048
+# 1152, not 2048. The longest example in any split is ~1078 tokens, so 2048
+# never truncated anything — it just set the padding width. With packing=False
+# every batch was padded to the ceiling, so roughly half of all compute went
+# into pad tokens.
+#
+# This is not a micro-optimisation: founder was cancelled at Kaggle's 12h cap
+# on 2026-08-14 without finishing ~168 steps, against a 2.5-3.5h estimate.
+# 1152 leaves ~70 tokens of headroom over the longest real example.
+MAX_SEQ_LEN = 1152
 LORA_R = 16
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
-EPOCHS = 3
+# 2, down from 3. A third of the wall clock for the last third of a LoRA's
+# convergence is a bad trade when the run does not fit in the session limit at
+# all. load_best_model_at_end still picks the better of the two eval points.
+EPOCHS = 2
 BATCH_SIZE = 2
 GRAD_ACCUM = 8  # effective batch = 16
 LR = 2e-4
