@@ -30,6 +30,7 @@ before the next loads.
 # ==============================================================================
 import gc
 import json
+import math
 import os
 import time
 
@@ -45,6 +46,12 @@ BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 LORA_R = 8
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
+# Named here rather than inline so a resumed checkpoint can be checked against
+# it before 15GB of base model gets loaded on its behalf.
+TARGET_MODULES = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+]
 
 EPOCHS = 2
 BATCH_SIZE = 4
@@ -119,6 +126,7 @@ os.makedirs(CKPT_ROOT, exist_ok=True)
 # ==============================================================================
 import glob  # noqa: E402
 import time as _time  # noqa: E402
+import traceback  # noqa: E402
 
 from datasets import load_dataset  # noqa: E402
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training  # noqa: E402
@@ -142,11 +150,70 @@ def already_published(mode: str) -> bool:
         return False
 
 
-def latest_checkpoint(directory: str):
+def _checkpoint_mismatch(path: str, expected_steps: int):
+    """Why this checkpoint cannot be resumed into the current config, or None.
+
+    Drive keeps checkpoints across config changes, and the shapes only get
+    checked deep inside load_state_dict — the r=16 smoke test left a
+    checkpoint-12 that cost a full 15GB model load before failing. Two things
+    have to match, not one:
+
+      * rank / alpha / target modules — different shapes, hard error.
+      * total planned steps — the LR scheduler state is restored verbatim, so
+        a 12-step cosine schedule resumed into a 112-step run comes back at
+        its own tail and trains the rest at ~0 learning rate. That failure is
+        silent, which makes it worse than the crash.
+    """
+    cfg_path = os.path.join(path, "adapter_config.json")
+    if not os.path.exists(cfg_path):
+        return "no adapter_config.json"
+    try:
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except Exception as exc:
+        return f"unreadable adapter_config.json ({exc})"
+
+    if cfg.get("r") != LORA_R or cfg.get("lora_alpha") != LORA_ALPHA:
+        return (f"r={cfg.get('r')}/alpha={cfg.get('lora_alpha')}, "
+                f"this run is r={LORA_R}/alpha={LORA_ALPHA}")
+    if set(cfg.get("target_modules") or []) != set(TARGET_MODULES):
+        return "different target_modules"
+    if cfg.get("base_model_name_or_path") not in (None, BASE_MODEL):
+        return f"base model {cfg.get('base_model_name_or_path')}"
+
+    state_path = os.path.join(path, "trainer_state.json")
+    if os.path.exists(state_path):
+        try:
+            with open(state_path, encoding="utf-8") as fh:
+                recorded = json.load(fh).get("max_steps")
+            if recorded and expected_steps and recorded != expected_steps:
+                return (f"was a {recorded}-step run, this one is "
+                        f"{expected_steps} steps (LR schedule would not match)")
+        except Exception:
+            pass
+    return None
+
+
+def latest_checkpoint(directory: str, expected_steps: int = 0):
+    """Newest resumable checkpoint, with incompatible ones moved aside.
+
+    Renaming rather than ignoring matters: leave `checkpoint-12` in place and
+    it wins the max() again the moment a fresh run has only reached step 10.
+    """
     found = [d for d in glob.glob(os.path.join(directory, "checkpoint-*")) if os.path.isdir(d)]
-    if not found:
-        return None
-    return max(found, key=lambda p: int(p.rsplit("-", 1)[-1]))
+    for path in sorted(found, key=lambda p: int(p.rsplit("-", 1)[-1]), reverse=True):
+        reason = _checkpoint_mismatch(path, expected_steps)
+        if reason is None:
+            return path
+        parked = path.replace("checkpoint-", "incompatible-checkpoint-")
+        print(f"  ignoring {os.path.basename(path)}: {reason}")
+        try:
+            if not os.path.exists(parked):
+                os.rename(path, parked)
+                print(f"    moved aside -> {os.path.basename(parked)}")
+        except Exception as exc:
+            print(f"    could not rename ({exc}); it will be re-checked next run")
+    return None
 
 
 class Progress(TrainerCallback):
@@ -193,10 +260,20 @@ def record(mode: str, payload: dict) -> None:
     print(f"  metrics -> {RESULTS_PATH}")
 
 
-def free_gpu() -> None:
-    gc.collect()
-    torch.cuda.empty_cache()
-    print(f"  GPU freed — {torch.cuda.memory_allocated() / 1e9:.2f} GB still allocated")
+def free_gpu(context: str = "") -> float:
+    """Drop everything reclaimable and report what would not go.
+
+    Returns GB still held, because the number is the diagnosis: a persona that
+    starts with several GB already gone is the one that OOMs, and it OOMs on
+    behalf of the persona before it.
+    """
+    for _ in range(3):
+        gc.collect()
+        torch.cuda.empty_cache()
+    held = torch.cuda.memory_allocated() / 1e9
+    label = f" ({context})" if context else ""
+    print(f"  GPU: {held:.2f} GB still allocated{label}")
+    return held
 
 
 def train_one(mode: str) -> None:
@@ -206,12 +283,32 @@ def train_one(mode: str) -> None:
 
     print(f"\n{'=' * 70}\n  {mode.upper()}  ->  {repo}\n{'=' * 70}")
 
+    # Loading the base model needs ~8GB. Starting with less than that free is
+    # a guaranteed OOM twenty minutes from now, so say it up front instead.
+    held = free_gpu("before start")
+    free_gb = (torch.cuda.get_device_properties(0).total_memory / 1e9) - held
+    if free_gb < 9:
+        raise RuntimeError(
+            f"only {free_gb:.1f} GB free before loading — {held:.1f} GB is held "
+            "by a previous persona. Runtime -> Restart session, then Run all; "
+            "finished personas are skipped and this one resumes."
+        )
+
     dataset = load_dataset(
         f"{HF_USERNAME}/eka-datasets",
         data_files={"train": f"{mode}_train.jsonl", "validation": f"{mode}_val.jsonl"},
         token=HF_TOKEN,
     )
     print(f"  train {len(dataset['train'])} | val {len(dataset['validation'])}")
+
+    # Same arithmetic the Trainer does, so the checkpoint can be vetted here —
+    # before the 15GB base model is downloaded on behalf of a checkpoint that
+    # turns out not to fit it.
+    batches = math.ceil(len(dataset["train"]) / BATCH_SIZE)
+    expected_steps = math.ceil(batches / GRAD_ACCUM) * EPOCHS
+    resume = latest_checkpoint(out_dir, expected_steps)
+    print(f"  {expected_steps} steps planned · "
+          f"{'resuming from ' + os.path.basename(resume) if resume else 'starting fresh'}")
 
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
     # Qwen's eos IS <|im_end|>, the token the ChatML template ends every turn
@@ -245,10 +342,7 @@ def train_one(mode: str) -> None:
             lora_dropout=LORA_DROPOUT,
             bias="none",
             task_type="CAUSAL_LM",
-            target_modules=[
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj",
-            ],
+            target_modules=list(TARGET_MODULES),
         ),
     )
     model.print_trainable_parameters()
@@ -325,9 +419,6 @@ def train_one(mode: str) -> None:
     )
     trainer.add_callback(Progress(mode))
 
-    resume = latest_checkpoint(out_dir)
-    print(f"  {'resuming from ' + os.path.basename(resume) if resume else 'starting fresh'}")
-
     started = time.time()
     trainer.train(resume_from_checkpoint=resume)
     metrics = trainer.evaluate()
@@ -379,7 +470,7 @@ QLoRA adapter giving Qwen2.5-7B-Instruct Eka's **{mode}** persona.
     })
 
     del trainer, model
-    free_gpu()
+    free_gpu(f"after {mode}")
 
 
 # ==============================================================================
@@ -398,7 +489,18 @@ for name in queue:
         # One persona failing must not cost the ones after it. Checkpoints are
         # in Drive, so re-running resumes this persona rather than restarting.
         print(f"❌ {name} failed: {type(exc).__name__}: {exc}")
-        free_gpu()
+
+        # THE FAILING PERSONA KEEPS THE GPU UNLESS ITS FRAMES ARE CLEARED.
+        #
+        # The traceback holds train_one's frame, and that frame holds `model`
+        # — a 7.9GB quantised base. gc.collect() cannot touch it while the
+        # exception is alive, so on 2026-08-15 founder crashed, held 7.86GB,
+        # and chanakya OOMed on a GPU it never had a chance at. The failure
+        # that gets reported is not the one that caused it, which is what
+        # makes this worth the two lines.
+        traceback.clear_frames(exc.__traceback__)
+        del exc
+        free_gpu(f"after {name} failed")
 
 print(f"\n{'=' * 70}\n  DONE\n{'=' * 70}")
 if os.path.exists(RESULTS_PATH):
