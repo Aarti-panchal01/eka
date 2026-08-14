@@ -1,78 +1,78 @@
-# Eka
+# Eka — Your Lifelong AI Companion
 
-**Live:** [the-eka.vercel.app](https://the-eka.vercel.app) ·
-**API:** [eka-backend-doau.onrender.com/health](https://eka-backend-doau.onrender.com/health)
+Four AI personas. Semantic memory that survives every conversation. Indian
+voice, in your language.
 
-A lifelong AI companion with four distinct personas, built on a retrieval
-pipeline that remembers what you told it months ago and decides for itself
-which of those memories matter right now.
-
-Not a chat wrapper. The interesting part is everything between the question and
-the model call: what gets recalled, how it is ranked, and how much compute the
-answer is worth.
+**[Live →](https://the-eka.vercel.app)** · [API health](https://eka-backend-doau.onrender.com/health)
 
 ---
 
-## The four modes
+## What Eka does differently
 
-| Mode | What it is for |
-|---|---|
-| **founder** | Brutally honest operator. Unit economics, runway, the thing you are avoiding. |
-| **chanakya** | Strategy and leverage. Power, incentives, who benefits. |
-| **gita** | Meaning when something has already gone wrong. |
-| **reflection** | Asks rather than answers. Turns the question back. |
+Not a chat wrapper. The interesting part is everything between the question and
+the model call.
 
-Each is a separate system prompt, a separate dataset, and a separate QLoRA
-adapter over the same 7B base — so switching modes changes how Eka thinks, not
-just its tone.
+- **Remembers across conversations** — semantic RAG over your own history, not
+  a rolling context window
+- **Routes by complexity** — four levels, and cheap questions never pay for
+  deep retrieval
+- **Speaks your language** — English, Hindi, Kannada, with per-persona voices
+- **Four distinct minds**, each with its own dataset and adapter
+- **Ranks memories by usefulness**, not just similarity
+
+## The four personas
+
+**⚡ Founder** — Brutally honest. Challenges assumptions, uses real startup
+frameworks, ends on a sharp question.
+
+**🛡 Chanakya** — Strategic and cold. Power dynamics, leverage, Arthashastra.
+*"What is the one move available to you right now?"*
+
+**✨ Gita** — Bhagavad Gita wisdom. Dharma, karma, detachment from outcomes.
+
+**👁 Reflection** — CBT/ACT shaped. Never advises. Reflects, observes, asks.
 
 ---
 
 ## Architecture
 
 ```mermaid
-flowchart TB
-    U[user message] --> C{complexity<br/>classifier}
-    C -->|simple| FAST[8B fast path]
-    C -->|normal / complex / deep| FULL[full RAG path]
-
-    FULL --> E[embed query<br/>768-dim]
-    E --> Q[(Qdrant<br/>semantic search)]
-    Q --> CAND[top-k candidate memories]
-    CAND --> R[LightGBM ranker<br/>7 features · NDCG@3 0.947]
-    R --> CTX[selected context]
-
-    CTX --> P[persona system prompt<br/>+ QLoRA adapter]
-    FAST --> P
-    P --> LLM[Qwen2.5-7B / Groq]
-    LLM --> OUT[response]
-
-    OUT --> S[sentiment + tagging]
-    S --> M[(Postgres<br/>8 tables)]
-    OUT --> TTS[Sarvam TTS]
-
-    M -.->|memory written back| Q
+flowchart LR
+    U[message] --> C{complexity<br/>4 levels}
+    C --> E[embed]
+    E --> Q[(Qdrant)]
+    Q --> R[LightGBM rerank<br/>NDCG@3 0.947]
+    R --> P[persona prompt<br/>+ memories + goals]
+    P --> L[Qwen2.5-7B]
+    L --> O[reply]
+    O --> M[(Postgres)]
+    O --> T[Sarvam TTS]
+    M -.write back.-> Q
 ```
 
-**Why a ranker at all.** Cosine similarity returns what is *similar*, not what
-is *useful*. A memory from yesterday about the same topic usually beats a
-semantically closer one from a year ago, and something the user marked
-important beats both. The ranker learns that trade-off over seven features —
-similarity, recency, priority, access count, length, mode match, provenance —
-and scores **NDCG@3 0.9466** on held-out data.
+### Retrieval budget scales with complexity
 
-**Why a complexity classifier.** Most messages do not need retrieval, a 70B
-model, or 2,000 tokens of context. Routing the cheap ones to a fast path is
-what makes the thing affordable to run on free tiers.
+Most messages do not need deep retrieval. Paying for it anyway is what makes
+these systems slow and expensive.
 
----
+| Level | Memories | History turns | Candidate pool |
+|---|---|---|---|
+| Simple | 1 | 2 | 10 |
+| Normal | 2 | 3 | 15 |
+| Complex | 3 | 5 | 25 |
+| Deep | 5 | 7 | 40 |
 
-## What is actually built
+### Why a learned ranker
+
+Cosine similarity returns what is *similar*, not what is *useful*. A memory
+from yesterday usually beats a semantically closer one from a year ago, and
+something you marked important beats both.
+
+**LightGBM `LGBMRanker`, NDCG@3 = 0.9466** on held-out data, over seven
+features: similarity, recency, priority, access count, length, mode match,
+provenance. Reproducible with `python training/train_ranker_local.py`.
 
 ### Data pipeline — 3,200 pairs, quality-gated
-
-Synthetic conversations generated through a rotating pool of free LLM providers
-with per-key token pacing, then filtered before anything reaches training.
 
 | persona | pairs | train / val |
 |---|---:|---:|
@@ -80,132 +80,131 @@ with per-key token pacing, then filtered before anything reaches training.
 | chanakya | 600 | 540 / 60 |
 | gita | 600 | 540 / 60 |
 | reflection | 1,000 | 900 / 100 |
-| **total** | **3,200** | **2,880 / 320** |
 
-Five quality gates plus an LLM judge run on every pair: persona-marker
-presence, near-duplicate detection, response-length bounds, one-question
-discipline, and an advice-leakage check specific to `reflection`. A persona
-that finishes short is regenerated rather than shipped — the gate refuses to
-publish anything that is not `ok_to_train`, because the next step is a
-multi-hour GPU run that bakes any defect permanently into weights.
+Generated through a rotating pool of four free providers (Groq, Mistral ×4
+keys, Google, OpenRouter) with per-key token pacing. Five gates plus an LLM
+judge run on every pair: persona markers, response-length bounds,
+one-question discipline, advice-leakage detection for `reflection`, and
+near-duplicate rejection.
 
-**6,000 embedding triplets** over 3,200 unique anchors for the retrieval
-fine-tune. Negatives are drawn from a *different* persona mode, which is
-exactly the confusion the retriever needs to stop making.
+**The duplicate threshold is 0.75 Jaccard, and it is empirical, not chosen for
+looking round.** At 0.75: 100% recall on clones, 0% false positives on the
+hardest real collision. At 0.85 clone recall collapses to 21%.
 
-### Serving
+Plus **6,000 embedding triplets** over 3,200 unique anchors, negatives drawn
+from a *different* persona — exactly the confusion a retriever needs to stop
+making.
 
-- **FastAPI backend** — 31 modules, 8 route groups (chat, memories, voice,
-  goals, reflections, insights, preferences, health), 17k lines of Python.
-- **Postgres (Supabase)** — 8 tables, alembic-migrated.
-- **Qdrant** — 768-dim vectors, semantic memory search.
-- **Sarvam AI** — TTS and STT, per-persona voices, Indian-language capable.
-- **7/7 E2E tests** passing against a live backend.
-- Graceful degradation everywhere: every response reports which services fell
-  back, so a partial outage is visible rather than silent.
+### Voice
 
-### Frontend
+- **STT** — Sarvam `saarika:v2.5`, plus browser Web Speech for zero-latency dictation
+- **TTS** — Sarvam `bulbul:v3`, per-persona speaker and pace:
 
-React + Vite + Tailwind, single screen, four mode buttons, hold-to-talk voice
-in and spoken replies out. Every call goes through one API client — there are
-no `fetch` calls in the UI.
+| persona | speaker | pace | same line |
+|---|---|---|---|
+| founder | aditya | 1.10 | 4.51s |
+| chanakya | ashutosh | 0.90 | 5.30s |
+| gita | priya | 0.85 | 5.89s |
+| reflection | kavya | 0.75 | 6.47s |
+
+Questions are sent as their own request so they carry their own intonation.
+Sentence breaks become `...` for real pauses — measured 2.48s → 3.6s on the
+same two sentences.
 
 ---
 
-## Model training
+## Status — what is trained, and what is not
 
-The persona adapters are **QLoRA over `Qwen2.5-7B-Instruct`**, 4-bit NF4, rank
-8, trained on ChatML-formatted splits. Base model chosen for being ungated;
-the pipeline previously targeted Llama-3-8B.
+Being straight about this, because the repo is public and anyone can check the
+Hub in thirty seconds.
 
-**Status: the training pipeline is built and validated end to end — the
-adapters are not finished.** Runs reach the trainer, produce checkpoints, and
-report loss; what has not yet happened is a full run landing an adapter on the
-Hub. Measured throughput drove the current config (rank 8, micro-batch 4,
-sequence ceiling 1,152 against a longest real example of 1,078 tokens).
+| Component | State |
+|---|---|
+| Data pipeline (3,200 pairs, 6,000 triplets) | **done, on the Hub** |
+| LightGBM ranker (NDCG@3 0.9466) | **trained, reproducible** |
+| Backend, RAG pipeline, voice, 5-screen UI | **done, deployed** |
+| Persona QLoRA adapters | **training pipeline validated, adapters not finished** |
+| Embedding / complexity / sentiment / summarizer models | **scripts written, not yet trained** |
 
-Until they land, personas run from system prompts against the same base model,
-which is why the product works today.
+Personas today run from system prompts against Qwen2.5-7B via Groq, which is
+why the product works end to end right now. Complexity and sentiment run their
+heuristic implementations — the free tier has 512MB, and `torch` plus
+`transformers` resident does not fit alongside FastAPI.
 
-Auxiliary models in the same pipeline: embedding fine-tune (`bge-base`),
-complexity and sentiment classifiers, and a summarizer.
+The QLoRA config, measured on a real T4: **r=8, α=32, 2 epochs, effective batch
+16, seq 1152**. That sequence length is not a guess — the longest example in
+any split is 1,078 tokens, and the original 2,048 was pure padding cost.
 
 ---
 
 ## Tech stack
 
-**ML** — PyTorch · transformers · TRL · PEFT · bitsandbytes · sentence-transformers · LightGBM
-**Backend** — FastAPI · Postgres/Supabase · Qdrant · asyncpg · Pydantic
-**Frontend** — React · Vite · Tailwind
-**Infra** — Render · Vercel · Hugging Face Hub · Kaggle / Colab (T4)
-
-### Deployed
-
-Backend on Render free tier, frontend on Vercel. `/health` reports every
-dependency separately rather than a single boolean, so a partial outage is
-visible:
-
-```json
-{"status":"ok","environment":"render","llm_mode":"groq",
- "groq":true,"qdrant":true,"database":true,"sarvam_configured":true,
- "complexity":false,"ranker":false,"sentiment":false}
-```
-
-The three `false` values are deliberate. `ENABLE_LOCAL_CLASSIFIERS=false` on a
-512 MB instance — torch plus transformers resident would blow the box before
-FastAPI got a look in — so complexity and sentiment fall back to their
-heuristic implementations and the ranker is not loaded in-process. Same
-behaviour, cheaper; flip the flag on a paid instance to get the trained
-versions.
-
-Free instances cold-start in ~50 s after idling, which the frontend surfaces as
-a connection indicator rather than a hang.
-
----
+| Layer | Technology |
+|---|---|
+| Frontend | React · Vite · Tailwind |
+| Backend | FastAPI · SQLAlchemy async · Pydantic |
+| Database | Supabase (PostgreSQL), 8 tables, alembic |
+| Vector DB | Qdrant Cloud, 768-dim |
+| LLM | Qwen2.5-7B-Instruct via Groq |
+| Voice | Sarvam AI — Bulbul v3, Saarika v2.5 |
+| Training | Kaggle / Colab T4, QLoRA via TRL + PEFT |
+| Deploy | Vercel + Render |
 
 ## Run it
 
 ```bash
-git clone https://github.com/Aarti-panchal01/eka.git && cd eka
-cp .env.example .env          # fill in the keys
-python scripts/verify_credentials.py   # checks every one of them for real
+git clone https://github.com/Aarti-panchal01/eka && cd eka
+cp .env.example .env                      # fill in keys
+python scripts/verify_credentials.py      # checks every one for real
 
-cd backend && python -m uvicorn main:app --port 8091
+cd backend && pip install -r requirements.txt
+uvicorn main:app --reload --port 8091
 ```
 
 ```bash
 cd frontend && npm install
-cp .env.example .env          # VITE_EKA_API_URL=http://localhost:8091
+echo "VITE_EKA_API_URL=http://localhost:8091" > .env
 npm run dev
 ```
 
-Regenerate data, or train:
+Regenerate data or train:
 
 ```bash
-python ml/scripts/run_queue.py --all        # generate all four personas
-python ml/scripts/preprocess.py             # -> ChatML train/val splits
-python scripts/preflight_kaggle.py --hub    # refuses to waste a GPU session
-python scripts/build_kaggle_notebooks.py    # notebooks are generated, not hand-edited
+python ml/scripts/run_queue.py --all       # generate all four personas
+python ml/scripts/preprocess.py            # -> ChatML splits
+python scripts/preflight_kaggle.py --hub   # refuses to waste a GPU session
+python scripts/build_kaggle_notebooks.py   # notebooks are generated, not edited
 ```
-
-`training/*.py` is the single source of truth; both the Kaggle and Colab
-notebooks are generated from it and `--check` fails if they drift.
 
 ---
 
-## Notes from building it
+## Things that cost real time
 
-A few things that cost real time and are written into the code as comments so
-they are not rediscovered:
+Written into the code as comments so they are not rediscovered:
 
 - **Pacing is token-bound, not request-bound.** Going "faster" than the token
-  budget makes a generation run strictly slower — one misconfiguration turned a
-  6-hour job into a 6-day one.
+  budget made one generation run 6 days instead of 6 hours.
 - **A trailing comma discarded ~40% of generated batches.** `...right now?", } ]`
-  is invalid strict JSON, so a whole five-pair call was thrown away. Fixing it
-  closed the hardest remaining pairs within two minutes.
-- **Never pin a stale stack against a managed image.** Pinning `numpy<2.0` on a
-  host built around NumPy 2 produced a mixed-ABI crash one cell after the pin
+  is invalid strict JSON, so a whole five-pair call was thrown away.
+- **Never pin a stale stack against a managed image.** `numpy<2.0` on a host
+  built around NumPy 2 produced a mixed-ABI crash one cell after the pin
   appeared to succeed.
 - **Verify the artifact, not the exit code.** A training notebook can finish
   cleanly having pushed nothing at all.
+- **A field that never enters the app cannot leak.** Routing internals are
+  stripped in the API client, not hidden in the view.
+
+---
+
+## Built by
+
+**Aarti Panchal** — B.Tech AI & ML, PES University Bengaluru
+C4GT DMP '26 Fellow
+
+[LinkedIn](https://linkedin.com/in/aarti-panchal) ·
+[GitHub](https://github.com/Aarti-panchal01) ·
+[Portfolio](https://aarti-tech-portfolio.vercel.app)
+
+---
+
+*Eka is Sanskrit for "one" — the one companion that knows you completely.*
