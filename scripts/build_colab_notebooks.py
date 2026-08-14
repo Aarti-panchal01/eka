@@ -165,10 +165,12 @@ def preamble(mode: str) -> list[dict]:
                 "# pushing an adapter, which is enough to measure the real\n"
                 "# s/step. The persona estimate has already been wrong by 4x\n"
                 "# once; measuring costs a quarter hour, guessing cost twelve.\n"
-                "# Set to '0' for the real run.\n"
+                "# Now '0' — the 2026-08-14 smoke test measured 361 s/step and\n"
+                "# the config was tuned off the back of it. Set to '1' to\n"
+                "# re-measure after any change to r / batch / seq len.\n"
                 "import os\n"
                 "\n"
-                "os.environ['EKA_SMOKE'] = '1'\n"
+                "os.environ['EKA_SMOKE'] = '0'\n"
                 "print('EKA_SMOKE =', os.environ['EKA_SMOKE'])"
             )
         )

@@ -245,15 +245,25 @@ OUTPUT_DIR = f"/kaggle/working/{MODE}_lora"
 # on 2026-08-14 without finishing ~168 steps, against a 2.5-3.5h estimate.
 # 1152 leaves ~70 tokens of headroom over the longest real example.
 MAX_SEQ_LEN = 1152
-LORA_R = 16
+# 8, halved after the 2026-08-14 smoke test measured 361 s/step. Halves
+# the trainable parameters (~40M -> ~20M) and the optimiser state with
+# them. LORA_ALPHA stays 32, so the scaling factor alpha/r doubles from
+# 2 to 4 — that is a real change in effective adapter strength, not a
+# free win. Drop alpha to 16 if the persona voice comes out overcooked.
+LORA_R = 8
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
 # 2, down from 3. A third of the wall clock for the last third of a LoRA's
 # convergence is a bad trade when the run does not fit in the session limit at
 # all. load_best_model_at_end still picks the better of the two eval points.
 EPOCHS = 2
-BATCH_SIZE = 2
-GRAD_ACCUM = 8  # effective batch = 16
+# 4, up from 2. The effective batch is unchanged at 16 (4 x 4), so the
+# step count and the learning dynamics stay put — this is purely about
+# feeding the GPU better. At micro-batch 2 and seq 1152 a T4 spends much
+# of each step underfed; doubling the micro-batch halves the number of
+# forward/backward launches per optimiser step.
+BATCH_SIZE = 4
+GRAD_ACCUM = 4  # effective batch = 16 (4 x 4), same as before
 LR = 2e-4
 SAVE_STEPS = 50
 EVAL_STEPS = 50
@@ -559,11 +569,13 @@ if os.environ.get("EKA_SMOKE") == "1":
 
 trainer.train(resume_from_checkpoint=RESUME_FROM)
 
-if os.environ.get("EKA_SMOKE") == "1":
-    raise SystemExit(
-        "Smoke test complete — read the s/step above and multiply. "
-        "Unset EKA_SMOKE for a real run."
-    )
+SMOKE = os.environ.get("EKA_SMOKE") == "1"
+if SMOKE:
+    # Deliberately NOT SystemExit. In a notebook that stops only the current
+    # cell, so the save cell ran anyway and blew up on a half-torn-down state.
+    # Setting a flag lets SECTION 9 decline for a stated reason.
+    print("\n*** SMOKE TEST DONE — read the s/step above and multiply. ***")
+    print("*** Set EKA_SMOKE = '0' and re-run for a real adapter. ***\n")
 
 metrics = trainer.evaluate()
 print(f"\n✓ Final eval loss: {metrics.get('eval_loss'):.4f}")
@@ -572,6 +584,21 @@ print(f"\n✓ Final eval loss: {metrics.get('eval_loss'):.4f}")
 # ==============================================================================
 # SECTION 9 — SAVE + PUSH TO HUB
 # ==============================================================================
+# Two different reasons `trainer` might be unusable here, and they must not be
+# treated the same way. A smoke run has nothing worth saving — that is expected
+# and we say so. A real run reaching this point without a trainer means
+# training itself failed, and the only useful thing to do is stop loudly:
+# swallowing it produces an empty repo, a "successful" job, and no traceback,
+# which is how three runs cost 20 GPU-hours and explained nothing.
+if SMOKE:
+    raise SystemExit("Smoke test — no adapter to save. Nothing was pushed.")
+if "trainer" not in globals():
+    raise SystemExit(
+        "trainer is undefined on a REAL run, so training never got that far.\n"
+        "The actual error is further up this log. Not saving anything, because "
+        "an empty repo that looks like success is worse than a crash."
+    )
+
 print("\nSaving adapter...")
 trainer.model.save_pretrained(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
