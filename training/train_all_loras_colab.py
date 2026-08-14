@@ -253,39 +253,68 @@ def train_one(mode: str) -> None:
     )
     model.print_trainable_parameters()
 
-    args = SFTConfig(
-        output_dir=out_dir,
-        num_train_epochs=EPOCHS,
-        per_device_train_batch_size=BATCH_SIZE,
-        per_device_eval_batch_size=BATCH_SIZE,
-        gradient_accumulation_steps=GRAD_ACCUM,
-        gradient_checkpointing=True,
-        learning_rate=LR,
-        lr_scheduler_type="cosine",
-        # warmup_steps, not warmup_ratio: current transformers removed the
-        # ratio form and raises TypeError on it.
-        warmup_steps=4,
-        max_grad_norm=0.3,
-        weight_decay=0.001,
-        fp16=not SUPPORTS_BF16,
-        bf16=SUPPORTS_BF16,
-        optim="paged_adamw_8bit",
-        logging_steps=5,
-        eval_strategy="steps",
-        eval_steps=EVAL_STEPS,
-        save_strategy="steps",
-        save_steps=SAVE_STEPS,
-        save_total_limit=2,     # Drive fills up fast; two is enough to resume
-        load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
-        report_to="none",       # wandb reaches for np.float_ under NumPy 2
-        seed=42,
-        group_by_length=True,
-        dataset_text_field="text",
-        max_length=MAX_SEQ_LEN,
-        packing=False,
-    )
+    # BUILT AS A DICT, THEN FILTERED AGAINST THE INSTALLED SIGNATURE.
+    #
+    # Colab installs with -U, so it runs whatever trl/transformers shipped this
+    # week, and those libraries delete keyword arguments between versions
+    # without deprecation: warmup_ratio went first, then group_by_length. Each
+    # one is a TypeError raised AFTER a 15GB model download, four times over.
+    #
+    # Passing only what this build actually accepts turns that class of failure
+    # into a printed line. Everything dropped here is a speed or logging knob;
+    # nothing that changes what the adapter learns.
+    requested = {
+        "output_dir": out_dir,
+        "num_train_epochs": EPOCHS,
+        "per_device_train_batch_size": BATCH_SIZE,
+        "per_device_eval_batch_size": BATCH_SIZE,
+        "gradient_accumulation_steps": GRAD_ACCUM,
+        "gradient_checkpointing": True,
+        "learning_rate": LR,
+        "lr_scheduler_type": "cosine",
+        # warmup_steps, not warmup_ratio: the ratio form is already gone.
+        "warmup_steps": 4,
+        "max_grad_norm": 0.3,
+        "weight_decay": 0.001,
+        "fp16": not SUPPORTS_BF16,
+        "bf16": SUPPORTS_BF16,
+        "optim": "paged_adamw_8bit",
+        "logging_steps": 5,
+        "eval_strategy": "steps",
+        "eval_steps": EVAL_STEPS,
+        "save_strategy": "steps",
+        "save_steps": SAVE_STEPS,
+        "save_total_limit": 2,   # Drive fills up fast; two is enough to resume
+        "load_best_model_at_end": True,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": False,
+        "report_to": "none",     # wandb reaches for np.float_ under NumPy 2
+        "seed": 42,
+        "group_by_length": True,  # batches similar lengths; dropped if absent
+        "dataset_text_field": "text",
+        "max_length": MAX_SEQ_LEN,
+        "packing": False,
+    }
+
+    import inspect
+
+    accepted = set(inspect.signature(SFTConfig.__init__).parameters)
+    dropped = sorted(k for k in requested if k not in accepted)
+    if dropped:
+        print(f"  this trl does not accept {dropped} — dropping them")
+    args = SFTConfig(**{k: v for k, v in requested.items() if k in accepted})
+
+    # max_length was max_seq_length in older trl. If neither survived the
+    # filter the model would silently train at the library default, so this is
+    # worth failing loudly over rather than discovering in the loss curve.
+    if "max_length" not in accepted:
+        if "max_seq_length" in accepted:
+            args.max_seq_length = MAX_SEQ_LEN
+        else:
+            raise SystemExit(
+                "SFTConfig accepts neither max_length nor max_seq_length — "
+                "sequence length would fall back to the library default."
+            )
 
     trainer = SFTTrainer(
         model=model,
