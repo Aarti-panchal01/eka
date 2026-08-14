@@ -87,6 +87,22 @@ export default function Reflections() {
     }
   }
 
+  async function remove(r) {
+    // Mood-only rows are noise and go without ceremony; anything with writing
+    // in it is worth one confirmation before it is gone for good.
+    const hasText = [r.challenges_faced, r.learnings, r.gratitude].some(
+      (v) => v && String(v).trim()
+    );
+    if (hasText && !window.confirm("Delete this reflection? This cannot be undone."))
+      return;
+    try {
+      await ekaAPI.deleteReflection(r.id);
+      reload();
+    } catch (err) {
+      setNote(errText(err));
+    }
+  }
+
   const week = [...items].slice(0, 7).reverse();
 
   return (
@@ -145,7 +161,7 @@ export default function Reflections() {
 
         <div className="space-y-3">
           {items.map((r) => (
-            <Card key={r.id} r={r} />
+            <Card key={r.id} r={r} onDelete={() => remove(r)} />
           ))}
         </div>
       </div>
@@ -159,7 +175,7 @@ export default function Reflections() {
   );
 }
 
-function Card({ r }) {
+function Card({ r, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const m = moodOf(r.mood);
   const blocks = [
@@ -185,6 +201,13 @@ function Card({ r }) {
           </p>
           <p className="text-xs text-neutral-500">{m.label}</p>
         </div>
+        <button
+          onClick={onDelete}
+          title="Delete this reflection"
+          className="ml-auto text-neutral-600 transition-all duration-200 hover:text-red-400"
+        >
+          🗑
+        </button>
       </div>
 
       {blocks.length === 0 && (
