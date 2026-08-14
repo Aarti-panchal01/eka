@@ -18,7 +18,7 @@ lightgbm==4.6.0
 # upstream in favour of pypdf, so its open advisory reports "no patched version
 # available" and never will — the fix IS the migration. Same PdfReader API, so
 # backend/api/routes/memory.py needed only its import changed.
-pypdf==6.14.2
+pypdf==6.16.1
 
 # --- Optional / heavier extras -------------------------------------------
 # Uncomment ONLY if you want the classifiers to run in-process on Render.

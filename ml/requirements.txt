@@ -1,22 +1,47 @@
-# Eka ML — data generation (laptop/CPU) + training (Kaggle T4)
-torch==2.3.0
-transformers==4.41.0
-peft==0.11.1
-trl==0.8.6
-datasets==2.19.1
-accelerate==0.30.0
-bitsandbytes==0.43.1
-sentence-transformers==3.0.1
-wandb==0.17.0
-huggingface-hub==0.23.2
+# Eka ML: data generation (laptop/CPU) + training (Colab T4)
+#
+# These pins moved together, not one at a time. transformers had to clear 5.5.0
+# for a published advisory, and 5.x is a major break: TrainingArguments became
+# SFTConfig, max_seq_length became max_length, warmup_ratio and group_by_length
+# were dropped outright. Leaving trl at 0.8.6 next to transformers 5.x would
+# describe a stack that resolves and then fails at the first training step, so
+# trl, peft, accelerate, datasets and huggingface-hub all moved with it.
+#
+# Checked, not assumed: trl 1.10 needs transformers>=4.56.2 and accelerate>=1.4,
+# sentence-transformers 5.7 caps transformers at <6.0, bitsandbytes 0.50 needs
+# torch>=2.4, and datasets 5.0 needs huggingface-hub>=0.25. Every pin below sits
+# inside all four bounds.
+#
+# The Colab notebooks install this stack UNPINNED with -U, deliberately: pinning
+# a stale set against a managed image is what cost two sessions to a mixed-ABI
+# NumPy crash. This file documents what -U currently resolves to, and is what a
+# laptop reproduction should use.
+torch==2.13.0
+transformers==5.15.0
+peft==0.20.0
+trl==1.10.0
+datasets==5.0.1
+accelerate==1.14.0
+bitsandbytes==0.50.1
+sentence-transformers==5.7.0
+huggingface-hub==1.27.0
+wandb==0.28.2
 groq==0.9.0
-lightgbm==4.3.0
-scikit-learn==1.5.0
-scipy==1.13.0
-evaluate==0.4.2
+# 4.6.0, not 4.3.0. The README promises train_ranker_local.py reproduces
+# NDCG@3 0.9466, and 4.6.0 is the version that actually produces it (verified
+# 2026-08-15). It also matches backend/requirements.txt, so the ranker is
+# trained and served by the same LightGBM.
+lightgbm==4.6.0
+scikit-learn==1.6.1
+scipy==1.15.2
+evaluate==0.4.6
 rouge-score==0.1.2
-python-dotenv==1.0.1
-numpy==1.26.4
+python-dotenv==1.2.2
+# NumPy 2, not 1.26. torch 2.13 and the rest of this stack are built against
+# NumPy 2 ABI; holding numpy<2 here is precisely the pin that produced
+# "numpy.dtype size changed, Expected 96, got 88" one cell after it appeared
+# to install cleanly.
+numpy==2.1.3
 tqdm==4.66.4
 
 # Data-generation scripts only need a tiny subset. On your laptop:

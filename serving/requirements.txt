@@ -1,4 +1,4 @@
-# Eka serving/ — standalone classifier microservices
+# Eka serving/: standalone classifier microservices
 # (complexity_serve.py, ranker_serve.py, sentiment_serve.py)
 #
 # All three share this one requirements file/image (see serving/Dockerfile);
@@ -10,13 +10,18 @@
 fastapi==0.111.0
 uvicorn[standard]==0.30.0
 pydantic==2.7.1
-numpy==1.26.4
-lightgbm==4.3.0
+# NumPy 2, to match the ABI torch 2.13 is built against. Holding numpy<2 next
+# to a modern torch is a mixed-ABI crash waiting for the first import.
+numpy==2.1.3
+# Same LightGBM the ranker is trained with in ml/requirements.txt. A ranker
+# served by a different version than it was fitted on is a silent accuracy bug,
+# so these two pins move together or not at all.
+lightgbm==4.6.0
 
 # --- torch + transformers, for complexity_serve.py / sentiment_serve.py ---
 # CPU-only build, installed from PyTorch's own CPU wheel index in the
 # Dockerfile (--index-url https://download.pytorch.org/whl/cpu) rather than
-# from PyPI directly — the default PyPI torch wheel pulls in CUDA libraries
+# from PyPI directly: the default PyPI torch wheel pulls in CUDA libraries
 # that are multiple GB and entirely useless on a CPU-only serving box.
-torch==2.3.0
-transformers==4.41.0
+torch==2.13.0
+transformers==5.15.0

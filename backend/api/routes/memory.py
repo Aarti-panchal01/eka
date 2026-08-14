@@ -202,7 +202,7 @@ def _extract_pdf(raw: bytes) -> str:
         except ImportError:
             raise HTTPException(
                 status_code=501,
-                detail="PDF support needs pypdf — pip install pypdf==6.14.2",
+                detail="PDF support needs pypdf. Run: pip install pypdf==6.16.1",
             )
     try:
         reader = PdfReader(io.BytesIO(raw))
