@@ -13,7 +13,7 @@ import {
   userId,
 } from "@/lib/ui";
 
-// Labels are ours; the values are what the backend's voice config expects.
+// Our labels; the values are what the backend's voice config expects.
 const VOICES = [
   { id: "male_deep", label: "Male · Deep" },
   { id: "male_warm", label: "Male · Warm" },
@@ -21,11 +21,13 @@ const VOICES = [
   { id: "alien_ethereal", label: "Alien · Ethereal" },
 ];
 
-const SPEEDS = [0.75, 1.0, 1.25, 1.5];
-
 export default function Settings({ mode, onMode }) {
   const { data, loading, error, reload } = useAsync(
     () => ekaAPI.getPreferences(userId()),
+    []
+  );
+  const { data: voiceInfo } = useAsync(
+    () => ekaAPI.getVoices().catch(() => null),
     []
   );
   const [prefs, setPrefs] = useState({});
@@ -36,13 +38,8 @@ export default function Settings({ mode, onMode }) {
     if (data) setPrefs(data);
   }, [data]);
 
-  // The backend is the source of truth for which voices are actually
-  // configured; a Sarvam key that is missing means none of them work.
-  const { data: voiceInfo } = useAsync(() => ekaAPI.getVoices().catch(() => null), []);
-
   async function save(patch) {
-    const next = { ...prefs, ...patch };
-    setPrefs(next);
+    setPrefs((p) => ({ ...p, ...patch }));
     setSaving(true);
     setNote(null);
     try {
@@ -55,7 +52,12 @@ export default function Settings({ mode, onMode }) {
     }
   }
 
-  if (loading) return <Shell><Loading label="Loading preferences…" /></Shell>;
+  if (loading)
+    return (
+      <Shell>
+        <Loading label="Loading preferences…" />
+      </Shell>
+    );
   if (error)
     return (
       <Shell>
@@ -69,28 +71,50 @@ export default function Settings({ mode, onMode }) {
         title="Settings"
         subtitle={saving ? "Saving…" : "Changes save as you make them."}
       />
-      {note && <p className="mb-4 text-sm text-red-300">{note}</p>}
+      {note && <ErrorBox>{note}</ErrorBox>}
+
+      <h2 className="mb-3 text-[11px] uppercase tracking-wider text-neutral-600">
+        Wisdom mode
+      </h2>
+      <div className="mb-7 grid grid-cols-2 gap-3">
+        {MODES.map((m) => {
+          const active = m.id === mode;
+          return (
+            <button
+              key={m.id}
+              onClick={() => onMode(m.id)}
+              className={`rounded-xl border px-4 py-3.5 text-left transition-all duration-200 ${
+                active ? m.selected : `border-edge bg-card ${m.idle}`
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base">{m.icon}</span>
+                <span
+                  className={`text-sm font-semibold ${
+                    active ? m.selectedText : "text-neutral-200"
+                  }`}
+                >
+                  {m.label}
+                </span>
+              </div>
+              <p
+                className={`mt-1 pl-7 text-[11px] ${
+                  active ? m.selectedHint : "text-neutral-500"
+                }`}
+              >
+                {m.hint}
+              </p>
+            </button>
+          );
+        })}
+      </div>
 
       <section className="card px-5">
-        <Row label="Wisdom mode" hint="Which persona new conversations open in">
-          <select
-            value={mode}
-            onChange={(e) => onMode(e.target.value)}
-            className="field w-52"
-          >
-            {MODES.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </Row>
-
         <Row
           label="Voice identity"
           hint={
             voiceInfo && voiceInfo.configured === false
-              ? "Voice is not configured on the backend — selection has no effect yet"
+              ? "Voice is not configured on the backend yet"
               : "Used for spoken replies"
           }
         >
@@ -107,6 +131,20 @@ export default function Settings({ mode, onMode }) {
           </select>
         </Row>
 
+        <Row label="Always listening" hint="Send straight after a voice note">
+          <Toggle
+            checked={prefs.always_listening}
+            onChange={(v) => save({ always_listening: v })}
+          />
+        </Row>
+
+        <Row label="Emotion mode" hint="Adapt tone to how you sound">
+          <Toggle
+            checked={prefs.emotion_mode}
+            onChange={(v) => save({ emotion_mode: v })}
+          />
+        </Row>
+
         <Row label="Spoken replies" hint="Read Eka's answers aloud">
           <Toggle
             checked={prefs.voice_enabled}
@@ -114,45 +152,28 @@ export default function Settings({ mode, onMode }) {
           />
         </Row>
 
-        <Row
-          label="Always listening"
-          hint="Send automatically after a voice note, without pressing send"
-        >
-          <Toggle
-            checked={prefs.always_listening}
-            onChange={(v) => save({ always_listening: v })}
-          />
-        </Row>
-
-        <Row label="Emotion mode" hint="Read sentiment and adapt tone">
-          <Toggle
-            checked={prefs.emotion_mode}
-            onChange={(v) => save({ emotion_mode: v })}
-          />
-        </Row>
-
         <Row label="Playback speed" hint="For spoken replies">
-          <div className="flex gap-1.5">
-            {SPEEDS.map((s) => (
-              <button
-                key={s}
-                onClick={() => save({ playback_speed: s })}
-                className={`chip transition ${
-                  (prefs.playback_speed ?? 1) === s
-                    ? "border-gold/50 text-gold"
-                    : "hover:text-neutral-200"
-                }`}
-              >
-                {s}×
-              </button>
-            ))}
+          <div className="flex w-52 items-center gap-3">
+            <input
+              type="range"
+              min="0.5"
+              max="2"
+              step="0.25"
+              value={prefs.playback_speed ?? 1}
+              onChange={(e) =>
+                save({ playback_speed: Number(e.target.value) })
+              }
+            />
+            <span className="w-10 shrink-0 text-right text-sm tabular-nums text-gold">
+              {(prefs.playback_speed ?? 1).toFixed(2)}×
+            </span>
           </div>
         </Row>
       </section>
 
       <p className="mt-6 text-xs text-neutral-600">
-        Identity is a browser-local id — there is no login. Clearing site data
-        starts a new user with no memories.
+        There is no login. Your identity is a browser-local id — clearing site
+        data starts a new user with no memories.
       </p>
     </Shell>
   );

@@ -83,9 +83,16 @@ export default function Reflections() {
                 {r.content}
               </p>
               {r.insight && (
-                <p className="mt-3 border-l-2 border-gold/40 pl-3 text-sm italic text-neutral-400">
-                  {r.insight}
-                </p>
+                // Eka's own reading of the entry, visually separated from what
+                // the user wrote so the two are never confused.
+                <div className="mt-3.5 rounded-lg border border-purple-400/30 bg-purple-400/[0.07] p-3.5">
+                  <p className="mb-1 text-[11px] uppercase tracking-wider text-purple-400">
+                    ✨ Eka's reflection
+                  </p>
+                  <p className="text-sm leading-relaxed text-purple-100/80">
+                    {r.insight}
+                  </p>
+                </div>
               )}
             </article>
           ))}

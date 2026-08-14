@@ -1,32 +1,19 @@
 import { NavLink } from "react-router-dom";
 
-import { MODES } from "@/lib/ui";
+import { MODES, NAV } from "@/lib/ui";
 
-const NAV = [
-  { to: "/", label: "Chat", glyph: "▣", end: true },
-  { to: "/memory", label: "Knowledge", glyph: "▤" },
-  { to: "/goals", label: "Goals", glyph: "▥" },
-  { to: "/reflections", label: "Reflections", glyph: "▦" },
-  { to: "/settings", label: "Settings", glyph: "▧" },
-];
-
-/**
- * Persistent left rail: identity, the four persona cards, then section nav.
- *
- * The mode cards live here rather than inside Chat because mode is app-level
- * state — Settings reads it, and the chat header reflects it.
- */
+/** Persistent 240px left rail: identity, persona cards, section nav. */
 export default function Sidebar({ mode, onMode, health }) {
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-edge bg-ink">
+    <aside className="flex w-60 shrink-0 flex-col border-r border-edge bg-sidebar">
       <div className="flex items-center gap-2.5 px-5 py-5">
         <span className="text-lg text-gold">◆</span>
         <span className="text-lg font-semibold tracking-tight">Eka</span>
         <span
-          title={health === "up" ? "Backend reachable" : "Backend unreachable"}
-          className={`ml-auto h-1.5 w-1.5 rounded-full ${
+          title={health === "up" ? "Connected" : "Backend unreachable"}
+          className={`ml-auto h-2 w-2 rounded-full ${
             health === "up"
-              ? "bg-emerald-400"
+              ? "animate-pulse bg-emerald-400"
               : health === "down"
                 ? "bg-red-400"
                 : "bg-neutral-600"
@@ -37,32 +24,32 @@ export default function Sidebar({ mode, onMode, health }) {
       <p className="px-5 pb-2 text-[11px] uppercase tracking-wider text-neutral-600">
         Wisdom mode
       </p>
-      <div className="scroll-thin space-y-1.5 overflow-y-auto px-3">
+      <div className="space-y-2 px-3">
         {MODES.map((m) => {
           const active = m.id === mode;
           return (
             <button
               key={m.id}
               onClick={() => onMode(m.id)}
-              className={`w-full rounded-lg border px-3 py-2.5 text-left transition ${
-                active
-                  ? "border-gold/40 bg-gold-soft"
-                  : "border-transparent hover:border-edge hover:bg-card"
+              className={`w-full rounded-xl border px-3.5 py-3 text-left transition-all duration-200 ${
+                active ? m.selected : `border-edge bg-card ${m.idle}`
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className={active ? "text-gold" : "text-neutral-500"}>
-                  {m.glyph}
-                </span>
+                <span className="text-base">{m.icon}</span>
                 <span
-                  className={`text-sm font-medium ${
-                    active ? "text-gold" : "text-neutral-200"
+                  className={`text-sm font-semibold ${
+                    active ? m.selectedText : "text-neutral-200"
                   }`}
                 >
                   {m.label}
                 </span>
               </div>
-              <p className="mt-0.5 pl-6 text-[11px] leading-snug text-neutral-500">
+              <p
+                className={`mt-1 pl-7 text-[11px] leading-snug ${
+                  active ? m.selectedHint : "text-neutral-500"
+                }`}
+              >
                 {m.hint}
               </p>
             </button>
@@ -70,21 +57,21 @@ export default function Sidebar({ mode, onMode, health }) {
         })}
       </div>
 
-      <nav className="mt-6 space-y-0.5 px-3 pb-5">
+      <nav className="mt-7 space-y-1 px-3 pb-5">
         {NAV.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
             end={n.end}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${
+              `flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm transition-all duration-200 ${
                 isActive
                   ? "bg-card text-neutral-100"
-                  : "text-neutral-500 hover:text-neutral-200"
+                  : "text-neutral-500 hover:bg-card/60 hover:text-neutral-200"
               }`
             }
           >
-            <span className="text-xs">{n.glyph}</span>
+            <span className="text-base leading-none">{n.icon}</span>
             {n.label}
           </NavLink>
         ))}

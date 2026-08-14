@@ -11,7 +11,14 @@ import {
   userId,
 } from "@/lib/ui";
 
-const CATEGORIES = ["business", "health", "craft", "relationships", "money"];
+const CATEGORIES = [
+  { id: "business", icon: "💼" },
+  { id: "health", icon: "🌱" },
+  { id: "craft", icon: "🔨" },
+  { id: "relationships", icon: "🤝" },
+  { id: "money", icon: "💰" },
+];
+const iconFor = (c) => CATEGORIES.find((x) => x.id === c)?.icon ?? "🎯";
 
 export default function Goals() {
   const [open, setOpen] = useState(false);
@@ -79,33 +86,39 @@ export default function Goals() {
             const current = g.current_value ?? 0;
             const pct = Math.min(100, Math.round((current / target) * 100));
             return (
-              <article key={g.id} className="card p-4">
+              <article key={g.id} className="card p-5">
                 <div className="mb-3 flex items-center gap-3">
+                  <span className="text-lg">{iconFor(g.category)}</span>
                   <h3 className="text-sm font-medium text-neutral-100">{g.title}</h3>
                   {g.category && <span className="chip">{g.category}</span>}
-                  <span className="ml-auto text-sm tabular-nums text-gold">{pct}%</span>
+                  <span className="ml-auto text-sm font-semibold tabular-nums text-gold">
+                    {pct}%
+                  </span>
                 </div>
 
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-ink">
                   <div
                     className="h-full rounded-full bg-gold transition-all duration-500"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
 
-                <div className="mt-3 flex items-center gap-2 text-xs text-neutral-500">
+                <div className="mt-3.5 flex items-center gap-2 text-xs text-neutral-500">
                   <span className="tabular-nums">
                     {current} / {target}
                   </span>
-                  <button
-                    onClick={() => bump(g, -1)}
-                    className="btn-ghost ml-auto !px-2 !py-0.5"
-                  >
-                    −
-                  </button>
-                  <button onClick={() => bump(g, 1)} className="btn-ghost !px-2 !py-0.5">
-                    +
-                  </button>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <button onClick={() => bump(g, -1)} className="btn-ghost !px-2.5 !py-1">
+                      −
+                    </button>
+                    <button onClick={() => bump(g, 1)} className="btn-ghost !px-2.5 !py-1">
+                      +
+                    </button>
+                    {/* One tap for the common case: a chunk of progress, not one unit. */}
+                    <button onClick={() => bump(g, 10)} className="btn-gold !px-3 !py-1">
+                      Quick update
+                    </button>
+                  </div>
                 </div>
               </article>
             );
@@ -118,7 +131,7 @@ export default function Goals() {
 
 function GoalForm({ onSubmit }) {
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState(CATEGORIES[0].id);
   const [target, setTarget] = useState("100");
 
   return (
@@ -143,8 +156,8 @@ function GoalForm({ onSubmit }) {
           className="field flex-1"
         >
           {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
+            <option key={c.id} value={c.id}>
+              {c.icon}  {c.id}
             </option>
           ))}
         </select>

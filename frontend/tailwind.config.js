@@ -4,16 +4,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Design tokens. Named rather than hex-inline so a palette change is
-        // one edit, and so `bg-ink` reads as intent instead of as a colour.
+        // Named rather than inlined as hex, so a palette change is one edit and
+        // `bg-card` reads as intent instead of as a colour.
         ink: "#0a0a0a", // app background
+        sidebar: "#111111", // left rail
         card: "#1a1a1a", // surfaces
         edge: "#262626", // hairlines
         gold: {
           DEFAULT: "#f5a623",
-          soft: "#f5a62319", // 10% — tints, active rows
-          mid: "#f5a62340", // 25% — borders on active state
+          soft: "#f5a62319",
+          mid: "#f5a62340",
         },
+      },
+      boxShadow: {
+        card: "0 1px 3px rgba(0,0,0,0.5), 0 8px 24px -12px rgba(0,0,0,0.7)",
       },
       fontFamily: {
         sans: [
@@ -28,6 +32,7 @@ export default {
           "sans-serif",
         ],
       },
+      transitionDuration: { DEFAULT: "200ms" },
       keyframes: {
         rise: {
           "0%": { opacity: "0", transform: "translateY(6px)" },

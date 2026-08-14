@@ -12,12 +12,11 @@ import {
 } from "@/lib/ui";
 
 const PRIORITY = [
-  { min: 8, label: "critical", cls: "border-red-500/40 text-red-300" },
-  { min: 6, label: "high", cls: "border-gold/50 text-gold" },
-  { min: 4, label: "normal", cls: "border-edge text-neutral-400" },
-  { min: 0, label: "low", cls: "border-edge text-neutral-600" },
+  { min: 7, label: "High", cls: "border-gold/50 text-gold" },
+  { min: 4, label: "Normal", cls: "border-edge text-neutral-400" },
+  { min: 0, label: "Low", cls: "border-edge text-neutral-600" },
 ];
-const tagFor = (n) => PRIORITY.find((p) => (n ?? 5) >= p.min) ?? PRIORITY[2];
+const tagFor = (n) => PRIORITY.find((p) => (n ?? 5) >= p.min) ?? PRIORITY[1];
 
 export default function Memory() {
   const [query, setQuery] = useState("");

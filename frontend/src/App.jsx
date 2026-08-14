@@ -42,7 +42,7 @@ export default function App() {
       <Sidebar mode={mode} onMode={setMode} health={health} />
       <div className="min-w-0 flex-1">
         <Routes>
-          <Route path="/" element={<Chat mode={mode} />} />
+          <Route path="/" element={<Chat mode={mode} health={health} />} />
           <Route path="/memory" element={<Memory />} />
           <Route path="/goals" element={<Goals />} />
           <Route path="/reflections" element={<Reflections />} />

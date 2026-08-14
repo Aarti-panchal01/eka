@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,11 +12,10 @@
   }
 
   body {
-    @apply bg-ink text-neutral-100 antialiased;
+    @apply bg-ink font-sans text-neutral-100 antialiased;
   }
 
-  /* Scrolling regions get a thin, unobtrusive bar rather than the OS default,
-     which is very loud against a near-black surface. */
+  /* The OS scrollbar is very loud against a near-black surface. */
   .scroll-thin {
     scrollbar-width: thin;
     scrollbar-color: #2f2f2f transparent;
@@ -27,32 +28,44 @@
     @apply rounded-full;
     background: #2f2f2f;
   }
+
+  /* Native range input is unstyleable enough to be worth overriding. */
+  input[type="range"] {
+    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-edge;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    @apply h-4 w-4 appearance-none rounded-full bg-gold;
+    box-shadow: 0 0 10px -2px #f5a623;
+  }
+  input[type="range"]::-moz-range-thumb {
+    @apply h-4 w-4 rounded-full border-0 bg-gold;
+  }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-edge bg-card;
+    @apply rounded-xl border border-edge bg-card shadow-card;
   }
 
   .btn-gold {
     @apply rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-ink
-           transition hover:brightness-110 disabled:cursor-not-allowed
-           disabled:opacity-40;
+           transition-all duration-200 hover:brightness-110
+           disabled:cursor-not-allowed disabled:opacity-40;
   }
 
   .btn-ghost {
     @apply rounded-lg border border-edge px-3 py-2 text-sm text-neutral-300
-           transition hover:border-neutral-600 hover:text-neutral-100
-           disabled:opacity-40;
+           transition-all duration-200 hover:border-neutral-600
+           hover:text-neutral-100 disabled:opacity-40;
   }
 
   .field {
-    @apply w-full rounded-lg border border-edge bg-ink px-3 py-2 text-[15px]
+    @apply w-full rounded-xl border border-edge bg-card px-3.5 py-2.5
+           text-[15px] transition-all duration-200
            placeholder:text-neutral-600 focus:border-gold/60 focus:outline-none;
   }
 
   .chip {
-    @apply rounded-full border border-edge px-2.5 py-0.5 text-[11px]
-           text-neutral-400;
+    @apply rounded-full border border-edge px-2.5 py-1 text-[11px] text-neutral-400;
   }
 }

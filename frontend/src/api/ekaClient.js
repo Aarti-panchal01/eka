@@ -333,6 +333,41 @@ function playAudio(audioBlob, { playbackSpeed = 1.0 } = {}) {
 // ekaAPI
 // ---------------------------------------------------------------------------
 
+/**
+ * Drop routing internals from a chat response before the UI ever sees them.
+ *
+ * Stripped here rather than hidden at render time on purpose: a field that
+ * never enters the app cannot leak through a new component, a debug panel, or
+ * a console.log of the response object. The UI keeps what it legitimately
+ * shows — the reply, the session, the mode, and how many memories were used.
+ *
+ * `degraded` and the `*:heuristic` markers are genuinely useful when debugging
+ * a bad answer, so they remain visible in the Network tab and in backend logs.
+ * They are just not product surface.
+ */
+const INTERNAL_FIELDS = [
+  "provider",
+  "complexity",
+  "sentiment",
+  "degraded",
+  "llm_backend",
+  "latency_ms",
+  "message_id",
+];
+
+function stripInternals(res) {
+  if (!res || typeof res !== "object") return res;
+  const clean = {};
+  for (const [key, value] of Object.entries(res)) {
+    if (INTERNAL_FIELDS.includes(key)) continue;
+    // Catches anything future the backend adds that names a fallback tier,
+    // e.g. "ranker": "heuristic".
+    if (typeof value === "string" && value.includes("heuristic")) continue;
+    clean[key] = value;
+  }
+  return clean;
+}
+
 export const ekaAPI = {
   // ===================================================================
   // CHAT — prefix /chat  (backend/api/routes/chat.py)
@@ -351,7 +386,7 @@ export const ekaAPI = {
       user_id: userId,
       session_id: sessionId || null,
       mode,
-    });
+    }).then(stripInternals);
   },
 
   /** GET /chat/sessions?user_id=&include_archived=&limit= */

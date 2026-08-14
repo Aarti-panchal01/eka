@@ -2,12 +2,71 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EkaApiError, getOrCreateUserId } from "@/api/ekaClient";
 
-/** The four personas, in one place — sidebar, chat header and settings all read this. */
+/**
+ * The four personas. Each owns a colour, and every Tailwind class is written
+ * out in full — Tailwind scans source text, so a runtime-built string like
+ * `border-${c}-500` is never emitted into the stylesheet.
+ */
 export const MODES = [
-  { id: "founder", label: "Founder", hint: "Brutally honest operator", glyph: "◆" },
-  { id: "chanakya", label: "Chanakya", hint: "Strategy and leverage", glyph: "◈" },
-  { id: "gita", label: "Gita", hint: "Meaning when it hurts", glyph: "◇" },
-  { id: "reflection", label: "Reflection", hint: "Turns questions back", glyph: "○" },
+  {
+    id: "founder",
+    label: "Founder",
+    hint: "Brutally honest operator",
+    icon: "⚡",
+    accent: "text-gold",
+    dot: "bg-gold",
+    // Founder is the only mode with a filled card — it is the default.
+    selected: "border-gold bg-gold text-ink shadow-[0_0_24px_-6px_#f5a623]",
+    selectedText: "text-ink",
+    selectedHint: "text-ink/70",
+    idle: "hover:border-gold/40",
+  },
+  {
+    id: "chanakya",
+    label: "Chanakya",
+    hint: "Strategy and leverage",
+    icon: "🛡",
+    accent: "text-orange-400",
+    dot: "bg-orange-400",
+    selected: "border-orange-400 bg-orange-400/10 shadow-[0_0_24px_-10px_#fb923c]",
+    selectedText: "text-orange-300",
+    selectedHint: "text-orange-200/50",
+    idle: "hover:border-orange-400/40",
+  },
+  {
+    id: "gita",
+    label: "Gita",
+    hint: "Meaning when it hurts",
+    icon: "✨",
+    accent: "text-purple-400",
+    dot: "bg-purple-400",
+    selected: "border-purple-400 bg-purple-400/10 shadow-[0_0_24px_-10px_#c084fc]",
+    selectedText: "text-purple-300",
+    selectedHint: "text-purple-200/50",
+    idle: "hover:border-purple-400/40",
+  },
+  {
+    id: "reflection",
+    label: "Reflection",
+    hint: "Turns questions back",
+    icon: "👁",
+    accent: "text-teal-400",
+    dot: "bg-teal-400",
+    selected: "border-teal-400 bg-teal-400/10 shadow-[0_0_24px_-10px_#2dd4bf]",
+    selectedText: "text-teal-300",
+    selectedHint: "text-teal-200/50",
+    idle: "hover:border-teal-400/40",
+  },
+];
+
+export const modeOf = (id) => MODES.find((m) => m.id === id) ?? MODES[0];
+
+export const NAV = [
+  { to: "/", label: "Chat", icon: "💬", end: true },
+  { to: "/memory", label: "Knowledge", icon: "🧠" },
+  { to: "/goals", label: "Goals", icon: "🎯" },
+  { to: "/reflections", label: "Reflections", icon: "✨" },
+  { to: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
 export const errText = (err) =>
@@ -18,11 +77,9 @@ export const errText = (err) =>
 export const userId = () => getOrCreateUserId();
 
 /**
- * Load-once async state with the three states a screen actually needs.
- *
- * `reload` is stable, so it is safe in a dependency array. Results are dropped
- * if the component unmounted mid-flight — on Render's free tier a first request
- * can take 50s, which is long enough for a user to navigate away twice.
+ * Load-once async state. `reload` is stable so it is safe in a dep array, and
+ * results are dropped after unmount — on Render's free tier a first request can
+ * take 50s, long enough for a user to navigate away twice.
  */
 export function useAsync(fn, deps = []) {
   const [data, setData] = useState(null);
@@ -64,37 +121,30 @@ export function PageHeader({ title, subtitle, action }) {
   );
 }
 
-export function Empty({ children }) {
-  return (
-    <div className="card p-10 text-center text-neutral-500">{children}</div>
-  );
-}
+export const Empty = ({ children }) => (
+  <div className="card p-10 text-center text-neutral-500">{children}</div>
+);
 
-export function Loading({ label = "Loading…" }) {
-  return (
-    <div className="card p-10 text-center text-neutral-500">
-      {label}
-      <p className="mt-2 text-xs text-neutral-600">
-        First request after idle can take ~50s while Render wakes the backend.
-      </p>
-    </div>
-  );
-}
+export const Loading = ({ label = "Loading…" }) => (
+  <div className="card p-10 text-center text-neutral-500">
+    {label}
+    <p className="mt-2 text-xs text-neutral-600">
+      First request after idle can take ~50s while the backend wakes up.
+    </p>
+  </div>
+);
 
-export function ErrorBox({ children, onRetry }) {
-  return (
-    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
-      {children}
-      {onRetry && (
-        <button onClick={onRetry} className="btn-ghost ml-3 !py-1">
-          Retry
-        </button>
-      )}
-    </div>
-  );
-}
+export const ErrorBox = ({ children, onRetry }) => (
+  <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+    {children}
+    {onRetry && (
+      <button onClick={onRetry} className="btn-ghost ml-3 !py-1">
+        Retry
+      </button>
+    )}
+  </div>
+);
 
-/** A labelled row for Settings — label left, control right. */
 export function Row({ label, hint, children }) {
   return (
     <div className="flex items-center justify-between gap-6 border-b border-edge py-4 last:border-0">
@@ -113,12 +163,12 @@ export function Toggle({ checked, onChange }) {
       role="switch"
       aria-checked={!!checked}
       onClick={() => onChange(!checked)}
-      className={`h-6 w-11 rounded-full border transition ${
+      className={`h-6 w-11 rounded-full border transition-all duration-200 ${
         checked ? "border-gold bg-gold" : "border-edge bg-card"
       }`}
     >
       <span
-        className={`block h-4 w-4 rounded-full bg-ink transition ${
+        className={`block h-4 w-4 rounded-full bg-ink transition-transform duration-200 ${
           checked ? "translate-x-6" : "translate-x-1"
         }`}
       />
