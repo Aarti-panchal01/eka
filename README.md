@@ -155,27 +155,106 @@ from real sessions to fill it.
 
 Reproduce: `python ml/eval/eval_harness.py`
 
-## Status — what is trained, and what is not
+## The ML work
 
-Being straight about this, because the repo is public and anyone can check the
-Hub in thirty seconds.
+### A validation pipeline, not just a generation script
+
+Anyone can prompt an LLM into 3,200 rows. The work is refusing most of them.
+
+Every generated pair passes five gates plus a judge before it can reach
+training, and a persona that finishes short is regenerated rather than shipped:
+
+- **Persona markers** — does the response actually behave like the persona
+- **Length floors and ceilings** — 150–250 words, enforced
+- **One-question discipline** — exactly one closing question, not three
+- **Advice-leakage detection** — `reflection` must never give advice, and a
+  regex misses paraphrase, so an 8B LLM judge classifies it semantically
+- **Near-duplicate rejection** — Jaccard at **0.75**
+
+**That threshold is derived, not chosen for looking round.** At 0.75: 100%
+recall on clones, 0% false positives against the hardest real collision in the
+corpus. At 0.85, clone recall collapses to **21%**. Jaccard is always the lower
+of the two measures — for equal-sized sets, cosine 0.75 is Jaccard 0.60 — which
+is why the number cannot be lifted from a paper that used cosine.
+
+The gate refuses to publish anything not marked `ok_to_train`, because the next
+step is a multi-hour GPU run that bakes any defect permanently into weights.
+
+### Persona-conditioned retrieval
+
+6,000 triplets over 3,200 unique anchors, and the interesting part is the
+negatives: each one is drawn from a **different persona's** conversations.
+
+That trains the retriever on the confusion that actually matters here. Generic
+negatives teach "these two texts are unrelated", which cosine similarity
+already knows. Persona negatives teach something harder — *the same topic,
+discussed in a different register, is not the memory you want.* Founder talking
+about failure and Gita talking about failure are semantically adjacent and
+functionally opposite.
+
+### A ranker, because similarity is the wrong objective
+
+Cosine returns what is *similar*, not what is *useful*. A memory from yesterday
+usually beats a closer one from a year ago; something the user flagged
+important beats both.
+
+**LightGBM `LGBMRanker`, NDCG@3 = 0.9466**, seven features: similarity,
+recency, priority, access count, length, mode match, provenance. Trained,
+deployed, and reproducible in one command.
+
+Its honest weakness, stated because a reader will find it: it is trained on
+synthetic data from `make_dataset()`. `feedback_service` is now collecting
+implicit relevance labels from live sessions — which memories were retrieved,
+and whether the user stayed on that thread — to retrain against real signal.
+
+### An evaluation harness, and a result that cost something
+
+Four mechanical checks over a held-out split, no judge model, fully
+reproducible. It produced the most useful number in the project:
+
+**Base model + persona prompt scores 93%. The training data itself scores 94%.**
+
+Prompting is already at the ceiling of these metrics. That is a bar for the
+fine-tune to clear, not an assumption to coast on — and finding it before
+spending GPU hours is the entire point of building the harness first.
+
+It also caught a confound in its own output: the RAG row runs a different base
+model than the no-RAG row, so that comparison is reported as *not yet measured*
+rather than as a finding.
+
+### Training pipeline
+
+Validated end to end on real hardware: 4-bit NF4 load, LoRA attach
+(**40,370,176 trainable, 0.53% of 7.66B**), optimizer steps executing at a
+measured **361 s/step** on a T4 before tuning.
+
+Config, every value chosen from measurement: **r=8, α=32, 2 epochs, effective
+batch 16, seq 1152**. That sequence length is not a guess — the longest example
+in any split is 1,078 tokens, and the original 2,048 was pure padding cost, so
+roughly half of every batch was pad tokens paid for at full price.
+
+**No adapter has finished training yet.** Runs have been lost to a session cap
+and a GPU-quota exhaustion, not to pipeline faults. When one completes it hot-
+swaps into production behind the existing `LLM_MODE` switch, and the eval table
+fills its pending row automatically.
+
+## Status
 
 | Component | State |
 |---|---|
-| Data pipeline (3,200 pairs, 6,000 triplets) | **done, on the Hub** |
-| LightGBM ranker (NDCG@3 0.9466) | **trained, reproducible** |
-| Backend, RAG pipeline, voice, 5-screen UI | **done, deployed** |
-| Persona QLoRA adapters | **training pipeline validated, adapters not finished** |
-| Embedding / complexity / sentiment / summarizer models | **scripts written, not yet trained** |
+| Data pipeline — 3,200 gated pairs, 6,000 triplets | **done, on the Hub** |
+| LightGBM ranker — NDCG@3 0.9466 | **trained, deployed, reproducible** |
+| Evaluation harness + ablation table | **done, results published above** |
+| Implicit relevance logging | **live, collecting** |
+| Backend, RAG, voice, 5-screen UI | **done, deployed** |
+| QLoRA training pipeline | **validated end to end on T4** |
+| Persona adapters | **not yet complete** |
+| Embedding / complexity / sentiment / summarizer | **scripts written, not yet trained** |
 
 Personas today run from system prompts against Qwen2.5-7B via Groq, which is
-why the product works end to end right now. Complexity and sentiment run their
+why the product works end to end right now. Complexity and sentiment run
 heuristic implementations — the free tier has 512MB, and `torch` plus
 `transformers` resident does not fit alongside FastAPI.
-
-The QLoRA config, measured on a real T4: **r=8, α=32, 2 epochs, effective batch
-16, seq 1152**. That sequence length is not a guess — the longest example in
-any split is 1,078 tokens, and the original 2,048 was pure padding cost.
 
 ---
 
