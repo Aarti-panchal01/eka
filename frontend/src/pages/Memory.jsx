@@ -154,7 +154,7 @@ export default function Memory() {
         <Onboard title="This is Eka's memory of you">
           Everything you tell Eka gets saved here automatically. Upload a file
           and Eka reads it for future conversations. Search by meaning, not
-          keywords — "the pricing argument" finds it even if you never used
+          keywords. "The pricing argument" finds it even if you never used
           that word.
         </Onboard>
 
@@ -170,7 +170,7 @@ export default function Memory() {
         {preview && (
           <div className="card mb-4 p-4">
             <p className="mb-1 text-sm font-medium text-gold">
-              📄 {preview.name} — read and saved
+              📄 {preview.name} · read and saved
             </p>
             <p className="line-clamp-4 text-sm text-neutral-400">
               {preview.text || "Text extracted. Eka can reference this now."}
@@ -182,7 +182,7 @@ export default function Memory() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by meaning — try “what did I say about pricing”"
+            placeholder="Search by meaning, try “what did I say about pricing”"
             className="field flex-1"
           />
           <button type="submit" disabled={busy} className="btn-ghost">
@@ -216,7 +216,7 @@ export default function Memory() {
                 <br />
                 <span className="text-sm text-neutral-600">
                   Tell Eka something about yourself in a full sentence, or
-                  upload a file — short replies like "ok" are skipped on
+                  upload a file. Short replies like "ok" are skipped on
                   purpose.
                 </span>
               </>

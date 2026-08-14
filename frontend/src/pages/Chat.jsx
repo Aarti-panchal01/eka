@@ -128,7 +128,7 @@ export default function Chat({ mode, language, health, newChatToken }) {
         // 0-byte blob, a blocked autoplay and a dead Sarvam key all look
         // identical from the outside — silence.
         console.info(
-          `[eka voice] ${forMode}/${language} — ${blob.size} bytes, playing`
+          `[eka voice] ${forMode}/${language} · ${blob.size} bytes, playing`
         );
         playback.current = ekaAPI.playAudio(blob);
         await playback.current;
@@ -165,7 +165,7 @@ export default function Chat({ mode, language, health, newChatToken }) {
       try {
         const blob = await ekaAPI.synthesize(text, forMode, language);
         console.info(
-          `[eka voice] ${forMode}/${language} — ${blob.size} bytes, playing`
+          `[eka voice] ${forMode}/${language} · ${blob.size} bytes, playing`
         );
         const handle = ekaAPI.playAudio(blob);
         playback.current = handle;
@@ -245,7 +245,7 @@ export default function Chat({ mode, language, health, newChatToken }) {
     }
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
-      setToast("Mic not supported in this browser — try Chrome or Edge.");
+      setToast("Mic not supported in this browser. Try Chrome or Edge.");
       return;
     }
     const rec = new SpeechRec();

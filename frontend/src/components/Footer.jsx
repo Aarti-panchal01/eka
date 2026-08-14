@@ -8,7 +8,7 @@ export default function Footer() {
     <footer className="shrink-0 border-t border-edge bg-sidebar px-6 py-3">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#888888]">
         <span className="flex items-center gap-1.5">
-          <span className="text-gold">◆</span> Eka — Your lifelong AI companion
+          <span className="text-gold">◆</span> Eka · Your lifelong AI companion
         </span>
 
         <span className="ml-auto flex items-center gap-3">

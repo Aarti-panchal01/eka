@@ -119,8 +119,8 @@ export default function Reflections() {
         />
 
         <Onboard title="End the day here">
-          Eka reads your reflections and brings them up when they're relevant —
-          so a pattern you can't see from inside becomes visible from outside.
+          Eka reads your reflections and brings them up when they're relevant, so
+          a pattern you can't see from inside becomes visible from outside.
         </Onboard>
 
         {week.length > 1 && (
@@ -212,7 +212,7 @@ function Card({ r, onDelete }) {
 
       {blocks.length === 0 && (
         <p className="text-sm italic text-neutral-600">
-          No written entry — mood only.
+          No written entry, mood only.
         </p>
       )}
 

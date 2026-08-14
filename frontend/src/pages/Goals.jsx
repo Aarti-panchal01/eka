@@ -35,7 +35,7 @@ const catOf = (id) =>
  */
 function commentary(pct, days) {
   if (pct >= 100) return "Done. Set the next one before the momentum goes.";
-  if (days != null && days < 0) return "Past due. Move the date or drop it — don't leave it rotting.";
+  if (days != null && days < 0) return "Past due. Move the date or drop it, don't leave it rotting.";
   if (days != null && days <= 3 && pct < 60) return `${days}d left and ${pct}% done. That's a scramble.`;
   if (pct === 0) return "Nothing logged yet. First increment is the hard one.";
   if (pct < 30) return "Early. Keep the cadence, not the intensity.";
@@ -99,7 +99,7 @@ export default function Goals() {
 
         <Onboard title="Eka holds you to these">
           Tell Eka what you're working towards. It tracks progress and brings
-          goals up in conversation when they're relevant — so you get asked
+          goals up in conversation when they're relevant, so you get asked
           about the thing you've been avoiding.
         </Onboard>
 
@@ -108,7 +108,7 @@ export default function Goals() {
         {error && <ErrorBox onRetry={reload}>{error}</ErrorBox>}
         {loading && !error && <Loading label="Loading goals…" />}
         {!loading && !error && goals.length === 0 && (
-          <Empty>No active goals. Start one — Eka will keep raising it.</Empty>
+          <Empty>No active goals. Start one and Eka will keep raising it.</Empty>
         )}
 
         <div className="space-y-3">

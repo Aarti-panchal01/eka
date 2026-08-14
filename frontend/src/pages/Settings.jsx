@@ -180,24 +180,24 @@ export default function Settings({ mode, onMode, language, onLanguage }) {
 
       <H>About your Eka</H>
       <section className="card mb-7 px-5">
-        <Row label="User ID" hint="Your entire identity — there is no login">
+        <Row label="User ID" hint="Your entire identity. There is no login">
           <button onClick={copyId} className="btn-ghost font-mono !text-xs">
             {copied ? "copied ✓" : `${userId().slice(0, 8)}… copy`}
           </button>
         </Row>
         <Row label="Memories saved">
           <span className="text-sm tabular-nums text-gold">
-            {stats?.memories ?? "—"}
+            {stats?.memories ?? "-"}
           </span>
         </Row>
         <Row label="Conversations">
           <span className="text-sm tabular-nums text-gold">
-            {stats?.sessions ?? "—"}
+            {stats?.sessions ?? "-"}
           </span>
         </Row>
         <Row label="Member since">
           <span className="text-sm text-neutral-400">
-            {stats?.since ? fmtDate(stats.since) : "—"}
+            {stats?.since ? fmtDate(stats.since) : "-"}
           </span>
         </Row>
       </section>
@@ -257,7 +257,7 @@ export default function Settings({ mode, onMode, language, onLanguage }) {
       </div>
       <p className="mb-7 text-xs text-neutral-600">
         Language changes the reply, the voice and speech recognition together.
-        The persona stays — founder is still blunt in Hindi.
+        The persona stays. Founder is still blunt in Hindi.
       </p>
 
       <section className="card mb-7 px-5">
@@ -349,7 +349,7 @@ export default function Settings({ mode, onMode, language, onLanguage }) {
       </section>
 
       <p className="mt-6 text-xs text-neutral-600">
-        There is no login. Your identity is a browser-local id — clearing site
+        There is no login. Your identity is a browser-local id, so clearing site
         data starts a new user with no memories. Export first if you care about
         them.
       </p>
