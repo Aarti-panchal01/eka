@@ -4,12 +4,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: {
-          900: "#0b0b0f",
-          800: "#131319",
-          700: "#1c1c24",
-          600: "#2a2a35",
+        // Design tokens. Named rather than hex-inline so a palette change is
+        // one edit, and so `bg-ink` reads as intent instead of as a colour.
+        ink: "#0a0a0a", // app background
+        card: "#1a1a1a", // surfaces
+        edge: "#262626", // hairlines
+        gold: {
+          DEFAULT: "#f5a623",
+          soft: "#f5a62319", // 10% — tints, active rows
+          mid: "#f5a62340", // 25% — borders on active state
         },
+      },
+      fontFamily: {
+        sans: [
+          "Inter",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
       },
       keyframes: {
         rise: {
