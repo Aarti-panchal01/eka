@@ -17,7 +17,7 @@ the model call.
 - **Routes by complexity** — four levels, and cheap questions never pay for
   deep retrieval
 - **Speaks your language** — English, Hindi, Kannada, with per-persona voices
-- **Four distinct minds**, each with its own dataset and adapter
+- **Four distinct minds**, each with its own dataset, prompt and voice
 - **Ranks memories by usefulness**, not just similarity
 
 ## The four personas
@@ -282,19 +282,30 @@ rather than as a finding.
 
 ### Training pipeline
 
-Validated end to end on real hardware: 4-bit NF4 load, LoRA attach
-(**40,370,176 trainable, 0.53% of 7.66B**), optimizer steps executing at a
-measured **361 s/step** on a T4 before tuning.
+QLoRA fine-tuning validated end to end on a Colab T4: 4-bit NF4 load, LoRA
+attach (**20,185,088 trainable, 0.264% of 7,635,801,600**), optimizer steps
+executing at a measured **304 s/step**.
 
-Config, every value chosen from measurement: **r=8, α=32, 2 epochs, effective
+Config, every value chosen from measurement: **r=8, α=16, 2 epochs, effective
 batch 16, seq 1152**. That sequence length is not a guess — the longest example
 in any split is 1,078 tokens, and the original 2,048 was pure padding cost, so
 roughly half of every batch was pad tokens paid for at full price.
 
-**No adapter has finished training yet.** Runs have been lost to a session cap
-and a GPU-quota exhaustion, not to pipeline faults. When one completes it hot-
-swaps into production behind the existing `LLM_MODE` switch, and the eval table
-fills its pending row automatically.
+**Full adapter training is paused on session constraints, not pipeline faults.**
+At 304 s/step a T4 needs ~9.5h for the four personas' 318 steps, against a free
+tier that caps near 12h and drops idle sessions well before that. The runs that
+died died to a session cap and a GPU-quota exhaustion; every code-level failure
+along the way — a stale r=16 checkpoint, a traceback pinning 7.9GB of GPU past
+the failure that caused it — is fixed and regression-tested in
+`ml/tests/test_checkpoint_guard.py`.
+
+**Personas today are served via system prompts against Qwen2.5-7B-Instruct —
+functionally complete and deployed.** That is not a placeholder for the
+fine-tune so much as the thing the fine-tune has to beat: the eval harness
+above measured prompting at **93%** against the training data's own **94%**,
+so the ceiling was already known before any GPU hour was spent. When an
+adapter completes it hot-swaps in behind the existing `LLM_MODE` switch and
+fills its pending row in the eval table.
 
 ## Status
 
@@ -308,9 +319,9 @@ fills its pending row automatically.
 | Evaluation harness + ablation table | **done, results published above** |
 | Implicit relevance logging | **live, collecting** |
 | Backend, RAG, voice, 5-screen UI | **done, deployed** |
-| QLoRA training pipeline | **validated end to end on T4** |
-| Persona adapters | **not yet complete** |
-| Embedding fine-tune | **script written, not yet trained** |
+| QLoRA training pipeline | **validated end to end on T4, 304 s/step** |
+| Persona adapters | **paused — served via system prompts, deployed** |
+| Embedding fine-tune | **script written, not trained** |
 
 Personas today run from system prompts against Qwen2.5-7B via Groq, which is
 why the product works end to end right now. Complexity and sentiment run
@@ -329,7 +340,7 @@ heuristic implementations — the free tier has 512MB, and `torch` plus
 | Vector DB | Qdrant Cloud, 768-dim |
 | LLM | Qwen2.5-7B-Instruct via Groq |
 | Voice | Sarvam AI — Bulbul v3, Saarika v2.5 |
-| Training | Kaggle / Colab T4, QLoRA via TRL + PEFT |
+| Training | Colab T4 — QLoRA via TRL + PEFT, classifiers via Transformers |
 | Deploy | Vercel + Render |
 
 ## Run it
