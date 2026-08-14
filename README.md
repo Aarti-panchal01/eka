@@ -1,6 +1,6 @@
 # Eka
 
-**Live:** [eka-three.vercel.app](https://eka-three.vercel.app) ·
+**Live:** [the-eka.vercel.app](https://the-eka.vercel.app) ·
 **API:** [eka-backend-doau.onrender.com/health](https://eka-backend-doau.onrender.com/health)
 
 A lifelong AI companion with four distinct personas, built on a retrieval
