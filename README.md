@@ -1,5 +1,8 @@
 # Eka
 
+**Live:** [eka-three.vercel.app](https://eka-three.vercel.app) ·
+**API:** [eka-backend-doau.onrender.com/health](https://eka-backend-doau.onrender.com/health)
+
 A lifelong AI companion with four distinct personas, built on a retrieval
 pipeline that remembers what you told it months ago and decides for itself
 which of those memories matter right now.
@@ -135,6 +138,28 @@ complexity and sentiment classifiers, and a summarizer.
 **Backend** — FastAPI · Postgres/Supabase · Qdrant · asyncpg · Pydantic
 **Frontend** — React · Vite · Tailwind
 **Infra** — Render · Vercel · Hugging Face Hub · Kaggle / Colab (T4)
+
+### Deployed
+
+Backend on Render free tier, frontend on Vercel. `/health` reports every
+dependency separately rather than a single boolean, so a partial outage is
+visible:
+
+```json
+{"status":"ok","environment":"render","llm_mode":"groq",
+ "groq":true,"qdrant":true,"database":true,"sarvam_configured":true,
+ "complexity":false,"ranker":false,"sentiment":false}
+```
+
+The three `false` values are deliberate. `ENABLE_LOCAL_CLASSIFIERS=false` on a
+512 MB instance — torch plus transformers resident would blow the box before
+FastAPI got a look in — so complexity and sentiment fall back to their
+heuristic implementations and the ranker is not loaded in-process. Same
+behaviour, cheaper; flip the flag on a paid instance to get the trained
+versions.
+
+Free instances cold-start in ~50 s after idling, which the frontend surfaces as
+a connection indicator rather than a hang.
 
 ---
 
