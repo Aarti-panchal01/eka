@@ -25,6 +25,15 @@ similarity, and a data pipeline that refuses most of what it generates.
 Every number below is measured and reproducible. The ones that are unflattering
 are here too, with the reason.
 
+<p align="center">
+  <img src="docs/screenshots/chat.png" width="49%" alt="Founder persona answering a runway question, ending on a sharp question" />
+  <img src="docs/screenshots/memory.png" width="49%" alt="The same message stored as a searchable memory, tagged with its complexity level" />
+</p>
+
+<p align="center"><em>Left: the Founder persona, live. Right: the same message
+already stored as a searchable memory, tagged with the complexity level that
+decided its retrieval budget.</em></p>
+
 ## Contents
 
 [What it does](#what-eka-does-differently) ·
