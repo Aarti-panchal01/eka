@@ -62,11 +62,11 @@ export const MODES = [
 export const modeOf = (id) => MODES.find((m) => m.id === id) ?? MODES[0];
 
 export const NAV = [
-  { to: "/", label: "Chat", icon: "💬", end: true },
-  { to: "/memory", label: "Knowledge", icon: "🧠" },
-  { to: "/goals", label: "Goals", icon: "🎯" },
-  { to: "/reflections", label: "Reflections", icon: "✨" },
-  { to: "/settings", label: "Settings", icon: "⚙️" },
+  { to: "/", label: "Chat", icon: "💬", hint: "Talk to Eka", end: true },
+  { to: "/memory", label: "Knowledge", icon: "🧠", hint: "Your memory bank" },
+  { to: "/goals", label: "Goals", icon: "🎯", hint: "Track what matters" },
+  { to: "/reflections", label: "Reflections", icon: "✨", hint: "Daily check-in" },
+  { to: "/settings", label: "Settings", icon: "⚙️", hint: "Customize Eka" },
 ];
 
 /**
@@ -161,6 +161,35 @@ export function useAsync(fn, deps = []) {
   }, [reload]);
 
   return { data, loading, error, reload, setData };
+}
+
+/** Plain-English explainer at the top of a page. */
+export function Onboard({ title, children }) {
+  return (
+    <div className="mb-6 rounded-xl border border-gold/25 bg-gold-soft p-4">
+      <p className="mb-1 text-sm font-semibold text-gold">{title}</p>
+      <p className="text-sm leading-relaxed text-neutral-300">{children}</p>
+    </div>
+  );
+}
+
+/** Dates arrive as ISO strings; show something a person can read. */
+export function fmtDate(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
+}
+
+export function daysUntil(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.ceil((d - new Date()) / 86400000);
 }
 
 export function PageHeader({ title, subtitle, action }) {

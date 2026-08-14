@@ -74,15 +74,20 @@ export default function Sidebar({ mode, onMode, health, onNewChat }) {
             to={n.to}
             end={n.end}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm transition-all duration-200 ${
+              `flex items-start gap-3 rounded-lg px-3.5 py-2.5 transition-all duration-200 ${
                 isActive
                   ? "bg-card text-neutral-100"
                   : "text-neutral-500 hover:bg-card/60 hover:text-neutral-200"
               }`
             }
           >
-            <span className="text-base leading-none">{n.icon}</span>
-            {n.label}
+            <span className="mt-0.5 text-base leading-none">{n.icon}</span>
+            <span className="min-w-0">
+              <span className="block text-sm leading-tight">{n.label}</span>
+              <span className="block text-[11px] leading-tight text-neutral-600">
+                {n.hint}
+              </span>
+            </span>
           </NavLink>
         ))}
       </nav>
