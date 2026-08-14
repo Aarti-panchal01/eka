@@ -113,6 +113,64 @@ same two sentences.
 
 ---
 
+## Trained models
+
+Three supervised models, trained and live on the Hub.
+
+| Model | Task | Result | Data |
+|---|---|---|---|
+| **eka-sentiment** — DistilRoBERTa | 6-class emotion | **72.4% acc · 0.721 F1-weighted** | GoEmotions, 42k train / 5.2k test |
+| **eka-summarizer** — T5-small | dialogue summary | **ROUGE-L 37.01 · ROUGE-1 44.37** | SAMSum, 14.7k |
+| **eka-complexity** — DistilBERT | 4-class routing | 100% acc — *see caveat* | 2,000 synthetic |
+| **eka-ranker** — LightGBM | memory rerank | **NDCG@3 0.9466** | synthetic |
+
+### Sentiment — the honest result
+
+72.4% on six classes, on a real external benchmark, with the confusion matrix
+published rather than summarised:
+
+| class | precision | recall | F1 | support |
+|---|---|---|---|---|
+| positive | 0.797 | 0.853 | 0.824 | 1,873 |
+| neutral | 0.733 | 0.679 | 0.705 | 1,962 |
+| negative | 0.648 | 0.687 | 0.667 | 891 |
+| reflective | 0.472 | 0.447 | 0.459 | 342 |
+| anxious | 0.624 | 0.700 | 0.660 | 90 |
+| motivated | 0.700 | **0.378** | 0.491 | 74 |
+
+The weak rows are the interesting ones. `motivated` has 74 test examples and
+recall of 0.378 — it is mostly being read as `positive`, which is a defensible
+confusion and a class-imbalance problem, not a modelling mystery. `reflective`
+overlaps `neutral` for the same reason. Both are stated rather than hidden
+behind the 72.4%.
+
+### Complexity — 100%, and why that number is not a win
+
+The classifier scores 1.0000 on held-out data. That is a **property of the
+dataset, not the model.**
+
+Word count per class, measured:
+
+| class | word range | median |
+|---|---|---|
+| simple | 1–7 | 3 |
+| normal | 5–17 | 6 |
+| complex | 21–38 | 27 |
+| deep | 59–76 | 69 |
+
+`normal→complex` and `complex→deep` do not overlap at all. **A three-threshold
+word-count rule scores 93.6% on the same data.** DistilBERT's extra 6.4 points
+are real but modest, and what it mostly learned was to count.
+
+The generator also left lexical tells — every `deep` example follows *"I realize
+I always X when Y. It happened with Z"*. So the honest reading is: the router
+works in production and routes correctly, and its accuracy figure measures how
+separable the synthetic data is. Validating it needs real user queries, which
+is what the deployed logging now collects.
+
+That caveat applies to the ranker too — same synthetic-data provenance, same
+reason `feedback_service` exists.
+
 ## Evaluation
 
 n=50 held-out prompts from `founder_val.jsonl` — the split that was actually
@@ -243,13 +301,16 @@ fills its pending row automatically.
 | Component | State |
 |---|---|
 | Data pipeline — 3,200 gated pairs, 6,000 triplets | **done, on the Hub** |
+| Sentiment — DistilRoBERTa, 72.4% on GoEmotions | **trained, on the Hub** |
+| Summarizer — T5-small, ROUGE-L 37.01 on SAMSum | **trained, on the Hub** |
+| Complexity router — DistilBERT | **trained, on the Hub** (see caveat) |
 | LightGBM ranker — NDCG@3 0.9466 | **trained, deployed, reproducible** |
 | Evaluation harness + ablation table | **done, results published above** |
 | Implicit relevance logging | **live, collecting** |
 | Backend, RAG, voice, 5-screen UI | **done, deployed** |
 | QLoRA training pipeline | **validated end to end on T4** |
 | Persona adapters | **not yet complete** |
-| Embedding / complexity / sentiment / summarizer | **scripts written, not yet trained** |
+| Embedding fine-tune | **script written, not yet trained** |
 
 Personas today run from system prompts against Qwen2.5-7B via Groq, which is
 why the product works end to end right now. Complexity and sentiment run
