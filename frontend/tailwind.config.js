@@ -42,10 +42,15 @@ export default {
           "0%": { boxShadow: "0 0 0 0 rgba(239,68,68,0.45)" },
           "100%": { boxShadow: "0 0 0 12px rgba(239,68,68,0)" },
         },
+        slideIn: {
+          "0%": { transform: "translateX(100%)" },
+          "100%": { transform: "translateX(0)" },
+        },
       },
       animation: {
         rise: "rise 160ms ease-out",
         pulseRing: "pulseRing 1.4s ease-out infinite",
+        slideIn: "slideIn 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       },
     },
   },

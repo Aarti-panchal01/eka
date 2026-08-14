@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 
 import ekaAPI from "@/api/ekaClient";
+import Footer from "@/components/Footer";
 import Sidebar from "@/components/Sidebar";
 import { getLanguage, setLanguage as persistLanguage } from "@/lib/ui";
 import Chat from "@/pages/Chat";
@@ -54,9 +55,12 @@ export default function App() {
         health={health}
         onNewChat={() => setNewChatToken((n) => n + 1)}
       />
-      <div className="min-w-0 flex-1">
-        <Routes>
-          <Route
+      {/* Column so the footer sits under the routed page and each page scrolls
+          inside the remaining space, rather than pushing the footer off. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1">
+            <Routes>
+            <Route
             path="/"
             element={
               <Chat
@@ -67,10 +71,10 @@ export default function App() {
               />
             }
           />
-          <Route path="/memory" element={<Memory />} />
-          <Route path="/goals" element={<Goals />} />
-          <Route path="/reflections" element={<Reflections />} />
-          <Route
+            <Route path="/memory" element={<Memory />} />
+            <Route path="/goals" element={<Goals />} />
+            <Route path="/reflections" element={<Reflections />} />
+            <Route
             path="/settings"
             element={
               <Settings
@@ -81,7 +85,9 @@ export default function App() {
               />
             }
           />
-        </Routes>
+          </Routes>
+        </div>
+        <Footer />
       </div>
     </div>
   );

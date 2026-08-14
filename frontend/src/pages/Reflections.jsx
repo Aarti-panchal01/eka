@@ -9,17 +9,51 @@ import {
   PageHeader,
   errText,
   fmtDate,
+  fmtLongDate,
   useAsync,
   userId,
 } from "@/lib/ui";
 
 const MOODS = [
-  { id: "good", emoji: "😊", label: "Good" },
-  { id: "neutral", emoji: "😐", label: "Neutral" },
-  { id: "tough", emoji: "😔", label: "Tough" },
-  { id: "energized", emoji: "🔥", label: "Energized" },
+  { id: "good", emoji: "😊", label: "Good", ring: "border-emerald-400/60", tint: "bg-emerald-400/15" },
+  { id: "neutral", emoji: "😐", label: "Neutral", ring: "border-neutral-500/60", tint: "bg-neutral-500/15" },
+  { id: "tough", emoji: "😔", label: "Tough", ring: "border-sky-400/60", tint: "bg-sky-400/15" },
+  { id: "energized", emoji: "🔥", label: "Energized", ring: "border-gold/60", tint: "bg-gold/15" },
 ];
-const moodOf = (id) => MOODS.find((m) => m.id === id) ?? { emoji: "•", label: id || "" };
+
+/**
+ * Older entries were saved with a different vocabulary ("flat", "steady",
+ * "rough", "sharp"). Mapping them here means old rows render as a real mood
+ * instead of a bare word with no emoji — which is what made the page look like
+ * raw database output.
+ */
+const MOOD_ALIASES = {
+  good: "good",
+  sharp: "good",
+  great: "good",
+  neutral: "neutral",
+  flat: "neutral",
+  steady: "neutral",
+  ok: "neutral",
+  tough: "tough",
+  rough: "tough",
+  bad: "tough",
+  low: "tough",
+  energized: "energized",
+  fired: "energized",
+};
+
+const moodOf = (raw) => {
+  const key = MOOD_ALIASES[(raw || "").toLowerCase().trim()];
+  return (
+    MOODS.find((m) => m.id === key) ?? {
+      emoji: "•",
+      label: raw || "Unrecorded",
+      ring: "border-edge",
+      tint: "bg-card",
+    }
+  );
+};
 
 export default function Reflections() {
   const [open, setOpen] = useState(false);
@@ -42,8 +76,7 @@ export default function Reflections() {
         challenges_faced: form.challenges,
         learnings: form.learnings,
         gratitude: form.gratitude,
-        // This is what makes Eka write eka_commentary on the entry.
-        request_commentary: true,
+        request_commentary: true, // this is what makes Eka write the insight
       });
       setOpen(false);
       reload();
@@ -54,7 +87,6 @@ export default function Reflections() {
     }
   }
 
-  // Newest first, then the last 7 reversed so the strip reads left-to-right.
   const week = [...items].slice(0, 7).reverse();
 
   return (
@@ -62,10 +94,10 @@ export default function Reflections() {
       <div className="mx-auto max-w-3xl">
         <PageHeader
           title="Reflections"
-          subtitle={`${items.length} entries`}
+          subtitle={`${items.length} ${items.length === 1 ? "entry" : "entries"}`}
           action={
-            <button onClick={() => setOpen((v) => !v)} className="btn-gold">
-              {open ? "Cancel" : "New reflection"}
+            <button onClick={() => setOpen(true)} className="btn-gold">
+              New reflection
             </button>
           }
         />
@@ -76,24 +108,34 @@ export default function Reflections() {
         </Onboard>
 
         {week.length > 1 && (
-          <div className="card mb-5 flex items-center gap-4 p-4">
-            <span className="text-[11px] uppercase tracking-wider text-neutral-600">
+          <div className="card mb-5 p-5">
+            <p className="mb-4 text-[11px] uppercase tracking-wider text-neutral-600">
               Recent mood
-            </span>
-            <div className="flex gap-4">
-              {week.map((r) => (
-                <div key={r.id} className="text-center" title={moodOf(r.mood).label}>
-                  <div className="text-lg">{moodOf(r.mood).emoji}</div>
-                  <div className="mt-0.5 text-[10px] text-neutral-600">
-                    {fmtDate(r.date || r.created_date)}
+            </p>
+            <div className="flex flex-wrap gap-5">
+              {week.map((r) => {
+                const m = moodOf(r.mood);
+                return (
+                  <div key={r.id} className="text-center">
+                    <div
+                      className={`flex h-11 w-11 items-center justify-center rounded-full border text-xl ${m.ring} ${m.tint}`}
+                      title={m.label}
+                    >
+                      {m.emoji}
+                    </div>
+                    <div className="mt-1.5 text-[11px] text-neutral-400">
+                      {m.label}
+                    </div>
+                    <div className="text-[10px] text-neutral-600">
+                      {fmtDate(r.date || r.created_date)}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
-        {open && <ReflectionForm onSubmit={create} saving={saving} />}
         {note && <ErrorBox>{note}</ErrorBox>}
         {error && <ErrorBox onRetry={reload}>{error}</ErrorBox>}
         {loading && !error && <Loading label="Loading reflections…" />}
@@ -102,60 +144,119 @@ export default function Reflections() {
         )}
 
         <div className="space-y-3">
-          {items.map((r) => {
-            const mood = moodOf(r.mood);
-            return (
-              <article key={r.id} className="card p-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="text-lg">{mood.emoji}</span>
-                  <span className="text-sm text-neutral-300">{mood.label}</span>
-                  <span className="ml-auto text-xs text-neutral-600">
-                    {fmtDate(r.date || r.created_date)}
-                  </span>
-                </div>
-
-                {r.challenges_faced && (
-                  <Block label="What happened">{r.challenges_faced}</Block>
-                )}
-                {r.learnings && <Block label="What I learned">{r.learnings}</Block>}
-                {r.gratitude && <Block label="Grateful for">{r.gratitude}</Block>}
-
-                {r.eka_commentary && (
-                  <div className="mt-3.5 rounded-lg border border-purple-400/30 bg-purple-400/[0.07] p-3.5">
-                    <p className="mb-1 text-[11px] uppercase tracking-wider text-purple-400">
-                      ✨ Eka's reflection
-                    </p>
-                    <p className="text-sm leading-relaxed text-purple-100/80">
-                      {r.eka_commentary}
-                    </p>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+          {items.map((r) => (
+            <Card key={r.id} r={r} />
+          ))}
         </div>
       </div>
+
+      {open && (
+        <Panel onClose={() => !saving && setOpen(false)}>
+          <ReflectionForm onSubmit={create} saving={saving} />
+        </Panel>
+      )}
     </div>
   );
 }
 
-const Block = ({ label, children }) => (
-  <div className="mb-2.5 last:mb-0">
-    <p className="mb-0.5 text-[11px] uppercase tracking-wider text-neutral-600">
-      {label}
-    </p>
-    <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-300">
-      {children}
-    </p>
-  </div>
-);
+function Card({ r }) {
+  const [expanded, setExpanded] = useState(false);
+  const m = moodOf(r.mood);
+  const blocks = [
+    ["What happened", r.challenges_faced],
+    ["What I learned", r.learnings],
+    ["Grateful for", r.gratitude],
+  ].filter(([, v]) => v && String(v).trim());
+
+  // Only offer expand when there is genuinely more to see.
+  const long = blocks.some(([, v]) => String(v).length > 220);
+
+  return (
+    <article className="card p-5">
+      <div className="mb-4 flex items-center gap-3">
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-full border text-lg ${m.ring} ${m.tint}`}
+        >
+          {m.emoji}
+        </div>
+        <div>
+          <p className="text-sm font-medium text-neutral-100">
+            {fmtLongDate(r.date || r.created_date)}
+          </p>
+          <p className="text-xs text-neutral-500">{m.label}</p>
+        </div>
+      </div>
+
+      {blocks.length === 0 && (
+        <p className="text-sm italic text-neutral-600">
+          No written entry — mood only.
+        </p>
+      )}
+
+      {blocks.map(([label, value]) => (
+        <div key={label} className="mb-3 last:mb-0">
+          <p className="mb-1 text-[11px] uppercase tracking-wider text-neutral-600">
+            {label}
+          </p>
+          <p
+            className={`whitespace-pre-wrap text-sm leading-relaxed text-neutral-300 ${
+              expanded ? "" : "line-clamp-4"
+            }`}
+          >
+            {value}
+          </p>
+        </div>
+      ))}
+
+      {long && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-[11px] text-gold transition-all duration-200 hover:brightness-125"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+
+      {r.eka_commentary && (
+        <div className="mt-4 rounded-lg border border-purple-400/30 bg-purple-400/[0.07] p-4">
+          <p className="mb-1 text-[11px] uppercase tracking-wider text-purple-400">
+            ✨ Eka's reflection
+          </p>
+          <p className="text-sm leading-relaxed text-purple-100/85">
+            {r.eka_commentary}
+          </p>
+        </div>
+      )}
+    </article>
+  );
+}
+
+/** Slide-in panel from the right, with a scrim that closes it. */
+function Panel({ children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+      />
+      <div className="animate-slideIn relative h-full w-full max-w-md overflow-y-auto border-l border-edge bg-sidebar p-6 shadow-2xl">
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 text-neutral-500 transition-all duration-200 hover:text-neutral-100"
+        >
+          ✕
+        </button>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function ReflectionForm({ onSubmit, saving }) {
   const [mood, setMood] = useState("good");
   const [challenges, setChallenges] = useState("");
   const [learnings, setLearnings] = useState("");
   const [gratitude, setGratitude] = useState("");
-
   const empty = !challenges.trim() && !learnings.trim() && !gratitude.trim();
 
   return (
@@ -164,51 +265,78 @@ function ReflectionForm({ onSubmit, saving }) {
         e.preventDefault();
         if (!empty) onSubmit({ mood, challenges, learnings, gratitude });
       }}
-      className="card mb-5 space-y-4 p-5"
+      className="space-y-5"
     >
-      <div className="flex gap-2">
-        {MOODS.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => setMood(m.id)}
-            className={`flex-1 rounded-xl border px-3 py-2.5 transition-all duration-200 ${
-              mood === m.id
-                ? "border-gold bg-gold-soft text-gold"
-                : "border-edge bg-ink text-neutral-400 hover:border-gold/40"
-            }`}
-          >
-            <div className="text-lg">{m.emoji}</div>
-            <div className="mt-0.5 text-[11px]">{m.label}</div>
-          </button>
-        ))}
+      <div>
+        <h2 className="text-lg font-semibold">Today's reflection</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          {fmtLongDate(new Date().toISOString())}
+        </p>
       </div>
 
-      <Field label="What happened today?" value={challenges} onChange={setChallenges} autoFocus />
-      <Field label="What did I learn?" value={learnings} onChange={setLearnings} />
-      <Field label="What am I grateful for?" value={gratitude} onChange={setGratitude} />
-
-      <div className="flex items-center gap-3">
-        <button type="submit" disabled={empty || saving} className="btn-gold">
-          {saving ? "Saving… Eka is reading it" : "Save reflection"}
-        </button>
-        <span className="text-xs text-neutral-600">
-          Eka writes a one-line insight back.
-        </span>
+      <div>
+        <p className="mb-2 text-[11px] uppercase tracking-wider text-neutral-600">
+          How was it?
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          {MOODS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setMood(m.id)}
+              className={`rounded-xl border py-3 transition-all duration-200 ${
+                mood === m.id
+                  ? `${m.ring} ${m.tint}`
+                  : "border-edge bg-card hover:border-neutral-600"
+              }`}
+            >
+              <div className="text-2xl">{m.emoji}</div>
+              <div className="mt-1 text-[10px] text-neutral-400">{m.label}</div>
+            </button>
+          ))}
+        </div>
       </div>
+
+      <Field
+        label="What happened today?"
+        placeholder="The thing that actually took up your head."
+        value={challenges}
+        onChange={setChallenges}
+        autoFocus
+      />
+      <Field
+        label="What did I learn?"
+        placeholder="Even if it's small, or annoying."
+        value={learnings}
+        onChange={setLearnings}
+      />
+      <Field
+        label="What am I grateful for?"
+        placeholder="One specific thing beats three vague ones."
+        value={gratitude}
+        onChange={setGratitude}
+      />
+
+      <button type="submit" disabled={empty || saving} className="btn-gold w-full">
+        {saving ? "Saving… Eka is reading it" : "Save reflection"}
+      </button>
+      <p className="text-center text-[11px] text-neutral-600">
+        Eka writes a one-line insight back.
+      </p>
     </form>
   );
 }
 
-const Field = ({ label, value, onChange, autoFocus }) => (
+const Field = ({ label, placeholder, value, onChange, autoFocus }) => (
   <div>
-    <label className="mb-1 block text-[11px] uppercase tracking-wider text-neutral-600">
+    <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-neutral-600">
       {label}
     </label>
     <textarea
       autoFocus={autoFocus}
-      rows={2}
+      rows={3}
       value={value}
+      placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
       className="field resize-y"
     />

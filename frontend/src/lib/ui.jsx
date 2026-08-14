@@ -185,6 +185,18 @@ export function fmtDate(value) {
   });
 }
 
+/** "Thursday, August 14" — for entries where the day itself is the headline. */
+export function fmtLongDate(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 export function daysUntil(value) {
   if (!value) return null;
   const d = new Date(value);
