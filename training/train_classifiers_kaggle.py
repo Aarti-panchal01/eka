@@ -263,7 +263,10 @@ def part1_complexity():
         learning_rate=2e-5,
         per_device_train_batch_size=32,
         per_device_eval_batch_size=64,
-        warmup_ratio=0.1,
+        # warmup_steps, not warmup_ratio: Kaggle's transformers 5.0 only
+        # DEPRECATED the ratio form, but a newer transformers removed it
+        # outright and raises TypeError. warmup_steps works on both.
+        warmup_steps=27,
         weight_decay=0.01,
         logging_steps=20,
         eval_strategy="epoch",
@@ -432,7 +435,10 @@ def part2_sentiment():
         learning_rate=2e-5,
         per_device_train_batch_size=32,
         per_device_eval_batch_size=64,
-        warmup_ratio=0.06,
+        # warmup_steps, not warmup_ratio: Kaggle's transformers 5.0 only
+        # DEPRECATED the ratio form, but a newer transformers removed it
+        # outright and raises TypeError. warmup_steps works on both.
+        warmup_steps=10,
         weight_decay=0.01,
         logging_steps=100,
         eval_strategy="epoch",
@@ -563,7 +569,10 @@ def part3_summarizer():
         learning_rate=5e-5,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=16,
-        warmup_ratio=0.06,
+        # warmup_steps, not warmup_ratio: Kaggle's transformers 5.0 only
+        # DEPRECATED the ratio form, but a newer transformers removed it
+        # outright and raises TypeError. warmup_steps works on both.
+        warmup_steps=10,
         weight_decay=0.01,
         logging_steps=200,
         eval_strategy="epoch",

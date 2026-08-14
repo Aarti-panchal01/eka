@@ -481,7 +481,10 @@ training_args = SFTConfig(
     per_device_eval_batch_size=BATCH_SIZE,
     gradient_accumulation_steps=GRAD_ACCUM,
     gradient_checkpointing=True,
-    warmup_ratio=0.03,
+    # warmup_steps, not warmup_ratio: Kaggle's transformers 5.0 only
+    # DEPRECATED the ratio form, but a newer transformers removed it
+    # outright and raises TypeError. warmup_steps works on both.
+    warmup_steps=4,
     learning_rate=LR,
     lr_scheduler_type="cosine",
     max_grad_norm=0.3,
