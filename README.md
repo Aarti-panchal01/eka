@@ -113,6 +113,48 @@ same two sentences.
 
 ---
 
+## Evaluation
+
+n=50 held-out prompts from `founder_val.jsonl` — the split that was actually
+withheld from training. Four mechanical checks per response, no judge model.
+`gold` scores the dataset's own answers, as an upper bound.
+
+| Configuration | Persona score | Ends w/ question | Uses framework | No hedging | Words in band | Mean words |
+|---|---|---|---|---|---|---|
+| Training data (gold) | **94%** (3.74/4) | 78% | 100% | 96% | 100% | 189 |
+| Base + prompt, no RAG | **93%** (3.73/4) | 100% | 100% | 100% | 73% | 159 |
+| RAG + ranker (deployed) | **78%** (3.14/4) | 90% | 82% | 82% | 60% | 215 |
+| Fine-tuned + RAG + ranker | _pending_ | — | — | — | — | — |
+
+| Configuration | Memories retrieved | Precision@3 | Median latency |
+|---|---|---|---|
+| No RAG | — | — | **1,168 ms** |
+| RAG + ranker | 4.7 | _needs labels_ | **16,796 ms** |
+
+### What this actually says
+
+**A base model with the persona prompt already scores 93% against gold's 94%.**
+On these four checks, prompting is essentially at the ceiling — which sets a
+real bar for the fine-tune to clear rather than assuming it helps.
+
+**The two rows are not a clean ablation.** The no-RAG row runs
+`llama-3.3-70b-versatile`; the deployed backend answers on
+`llama-3.1-8b-instant`. So the 93→78 drop confounds *model size* with
+*retrieval*, and the honest conclusion is "not yet measured", not "RAG hurts".
+Fixing it means pinning both rows to the same model.
+
+**These checks measure format, not substance.** The base model is *more*
+mechanically compliant than gold — 100% of its answers end in a question
+against gold's 78%. A fine-tune that copies the training distribution would
+score slightly lower here and might still be better. Judging that needs blind
+pairwise preference, which is the next thing to build.
+
+**Precision@3 is deliberately blank.** Counting retrieved memories is not
+knowing they were useful. `feedback_service` is now collecting implicit labels
+from real sessions to fill it.
+
+Reproduce: `python ml/eval/eval_harness.py`
+
 ## Status — what is trained, and what is not
 
 Being straight about this, because the repo is public and anyone can check the

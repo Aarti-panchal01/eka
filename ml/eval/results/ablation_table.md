@@ -1,6 +1,6 @@
 # Evaluation results
 
-_Generated 2026-08-14 15:31 UTC · n=8 held-out founder prompts from `founder_val.jsonl` (never seen in training)._
+_Generated 2026-08-14 15:44 UTC · n=50 held-out founder prompts from `founder_val.jsonl` (never seen in training)._
 
 ## Persona adherence
 
@@ -8,9 +8,9 @@ Four mechanical checks per response, averaged. `gold` is the dataset's own answe
 
 | Configuration | Persona score | Ends w/ question | Uses framework | No hedging | Words in band | Mean words |
 |---|---|---|---|---|---|---|
-| Training data (gold) | **88%** (3.50/4) | 62% | 100% | 88% | 100% | 181 |
-| Base + prompt, no RAG | **81%** (3.25/4) | 100% | 100% | 88% | 38% | 150 |
-| RAG + ranker (deployed) | _pending_ | — | — | — | — | — |
+| Training data (gold) | **94%** (3.74/4) | 78% | 100% | 96% | 100% | 189 |
+| Base + prompt, no RAG | **93%** (3.73/4) | 100% | 100% | 100% | 73% | 159 |
+| RAG + ranker (deployed) | **78%** (3.14/4) | 90% | 82% | 82% | 60% | 215 |
 | Fine-tuned + RAG + ranker | _pending_ | — | — | — | — | — |
 
 ## RAG ablation
@@ -18,7 +18,8 @@ Four mechanical checks per response, averaged. `gold` is the dataset's own answe
 | Configuration | Memories retrieved | Precision@3 | Median latency |
 |---|---|---|---|
 | Training data (gold) | — | _needs labels_ | 0 ms |
-| Base + prompt, no RAG | — | _needs labels_ | 1102 ms |
+| Base + prompt, no RAG | — | _needs labels_ | 1168 ms |
+| RAG + ranker (deployed) | 4.7 | _needs labels_ | 16796 ms |
 
 ### Method
 
