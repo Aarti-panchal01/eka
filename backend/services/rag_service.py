@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import PROMPTS_DIR, VALID_MODES, settings
 from models.db_models import ChatMessage, GoalTracking
 from models.schemas import ChatRequest, ChatResponse, RetrievedMemory
+from services import feedback_service
 from services.complexity_service import complexity_service
 from services.embedding_service import embedding_service
 from services.llm_service import llm_service
@@ -89,6 +90,14 @@ class RAGService:
             session.mode = mode
             await db.commit()
 
+        # This message is the verdict on the PREVIOUS turn's retrieval: did the
+        # user stay on that thread or move on? Resolved before this turn does
+        # anything, so the label reflects only what the user already saw.
+        try:
+            feedback_service.resolve(str(session.id), request.message)
+        except Exception as exc:  # never let telemetry break a reply
+            logger.debug("feedback resolve skipped: %s", exc)
+
         # --- 1. complexity ---------------------------------------------
         try:
             complexity, complexity_confidence = await complexity_service.classify(
@@ -135,6 +144,19 @@ class RAGService:
         memories = await self._rerank(candidates, query_topic, config["memories"])
         if candidates and not await ranker_service.available():
             degraded.append("ranker:heuristic")
+
+        # Hold what was retrieved; the next message in this session judges it.
+        try:
+            feedback_service.record_retrieval(
+                session_id=str(session.id),
+                user_id=request.user_id,
+                message=request.message,
+                mode=mode,
+                complexity=complexity,
+                memories=memories,
+            )
+        except Exception as exc:
+            logger.debug("feedback record skipped: %s", exc)
 
         # --- 7. goals ----------------------------------------------------
         try:

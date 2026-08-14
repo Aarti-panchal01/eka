@@ -1,0 +1,39 @@
+{
+  "generated_utc": "2026-08-14T15:31:56+00:00",
+  "n": 8,
+  "source": "founder_val.jsonl (held out)",
+  "results": [
+    {
+      "config": "gold",
+      "label": "Training data (gold)",
+      "n": 8,
+      "failures": 0,
+      "persona_adherence": 0.875,
+      "persona_score_mean": 3.5,
+      "ends_with_question": 0.625,
+      "uses_framework": 1,
+      "no_hedging": 0.875,
+      "word_count_in_band": 1,
+      "words_mean": 181.1,
+      "latency_ms_median": 0,
+      "memories_retrieved_mean": null,
+      "memory_precision_at_3": null
+    },
+    {
+      "config": "prompted",
+      "label": "Base + prompt, no RAG",
+      "n": 8,
+      "failures": 0,
+      "persona_adherence": 0.8125,
+      "persona_score_mean": 3.25,
+      "ends_with_question": 1,
+      "uses_framework": 1,
+      "no_hedging": 0.875,
+      "word_count_in_band": 0.375,
+      "words_mean": 150.5,
+      "latency_ms_median": 1102,
+      "memories_retrieved_mean": null,
+      "memory_precision_at_3": null
+    }
+  ]
+}
