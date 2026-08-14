@@ -315,9 +315,14 @@ successful `sendMessage` resolves.
   path segment to attach a query param to there.
 - **`archiveSession` takes no `user_id`** — it's a plain
   `DELETE /chat/sessions/{id}`.
-- **CORS is already wide open** (`allow_origins=["*"]` in
-  `backend/main.py`) — you do not need a dev proxy or CORS workaround
-  locally or in production.
+- **CORS is NOT wide open any more.** This used to say `allow_origins=["*"]`,
+  and that stopped being true the moment the backend was deployed with a real
+  `CORS_ORIGINS`. `config.py` only returns `["*"]` when `CORS_ORIGINS` is
+  literally `*`; otherwise it returns exactly the comma-separated list you set
+  (plus `FRONTEND_URL`). **Every origin that calls the API must be in that
+  list** — the Vercel app and the Base44 app are different origins, and a
+  missing one fails preflight with a 400 and no `Access-Control-*` headers,
+  which in the browser console looks like the backend being down.
 - **Render free tier cold starts.** If the backend has been idle, the first
   request can take 30-60 seconds while the instance spins back up. Don't
   use a short fetch timeout by default; if you add one, make it generous
@@ -326,7 +331,74 @@ successful `sendMessage` resolves.
 - **TTS 503 is expected, not exceptional.** Always catch it separately from
   other errors and just skip voice playback — never block the text reply on it.
 
-## 10. Checklist
+## 10. Base44 specifically — no build step, no imports
+
+`ekaClient.js` assumes a bundler (`import.meta.env`, ES imports). Inside Base44
+you generally cannot import a file from this repo, so paste this self-contained
+client instead. It is the same contract, minus the parts that need Vite.
+
+```js
+// --- Eka backend client (paste into Base44) -------------------------------
+const EKA_API = "https://eka-backend-doau.onrender.com";
+
+function ekaUserId() {
+  // The backend has no auth. This id IS the user's identity and their entire
+  // memory history — losing it starts them over from nothing.
+  let id = localStorage.getItem("eka_user_id");
+  if (!id) {
+    id = (crypto.randomUUID?.() || String(Date.now()) + Math.random());
+    localStorage.setItem("eka_user_id", id);
+  }
+  return id;
+}
+
+async function ekaSend(message, mode = "founder", sessionId = null) {
+  const res = await fetch(`${EKA_API}/chat/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      user_id: ekaUserId(),
+      session_id: sessionId,   // null on the first turn; backend creates one
+      mode,                    // founder | chanakya | gita | reflection
+    }),
+  });
+  if (!res.ok) throw new Error(`Eka ${res.status}: ${await res.text()}`);
+  return res.json();           // -> { response, session_id, mode, ... }
+}
+
+async function ekaTranscribe(blob) {
+  const fd = new FormData();
+  fd.append("file", blob, "voice.webm");
+  const res = await fetch(`${EKA_API}/voice/stt`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error(`STT ${res.status}`);
+  return (await res.json()).text;
+}
+
+async function ekaSpeak(text, mode = "founder") {
+  const res = await fetch(`${EKA_API}/voice/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, mode }),
+  });
+  if (!res.ok) return;         // 503 = TTS down. Never block the text reply.
+  new Audio(URL.createObjectURL(await res.blob())).play();
+}
+```
+
+Then the swap is one call per feature:
+
+| Base44 | replace with |
+|---|---|
+| `base44.entities.Message.create(...)` + `Core.InvokeLLM(...)` | `await ekaSend(text, mode, sessionId)` |
+| `Core.SpeechToText(blob)` | `await ekaTranscribe(blob)` |
+| `Core.TextToSpeech(text)` | `await ekaSpeak(text, mode)` |
+
+Keep `sessionId` in component state and reassign it from `res.session_id` on
+every reply — that is what makes Eka remember the conversation rather than
+starting fresh each turn.
+
+## 11. Checklist
 
 - [ ] `ekaClient.js` imported from `frontend/src/api/ekaClient.js`
 - [ ] `.env` created from `.env.example` with `VITE_EKA_API_URL` set, dev
