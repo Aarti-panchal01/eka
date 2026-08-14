@@ -145,6 +145,7 @@ class RAGService:
 
         # --- 8. prompt ---------------------------------------------------
         persona = self.load_persona_prompt(mode)
+        persona = self.apply_language(persona, getattr(request, "language", "en-IN"))
         user_prompt = self.build_prompt(
             message=request.message,
             memories=memories,
@@ -231,6 +232,29 @@ class RAGService:
         )
 
     # ====================================================== prompt build
+    # Appended, never substituted. The persona prompt is what makes founder
+    # sound like founder; a language instruction that replaced it would give
+    # four identical-sounding personas in Hindi.
+    LANGUAGE_INSTRUCTION = {
+        "hi-IN": (
+            "\n\nRespond in Hindi (Devanagari script). Keep your persona "
+            "intact — same directness, same structure, same one closing "
+            "question. Do not translate word for word; write as a native "
+            "Hindi speaker would say it."
+        ),
+        "kn-IN": (
+            "\n\nRespond in Kannada (Kannada script). Keep your persona "
+            "intact — same directness, same structure, same one closing "
+            "question. Do not translate word for word; write as a native "
+            "Kannada speaker would say it."
+        ),
+    }
+
+    @classmethod
+    def apply_language(cls, persona: str, language: str) -> str:
+        """English is the prompt's native language, so it needs no instruction."""
+        return persona + cls.LANGUAGE_INSTRUCTION.get(language, "")
+
     def load_persona_prompt(self, mode: str) -> str:
         """Read and cache backend/prompts/<mode>.txt."""
         if mode in self._persona_cache:

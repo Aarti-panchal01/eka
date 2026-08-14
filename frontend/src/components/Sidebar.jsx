@@ -3,10 +3,10 @@ import { NavLink } from "react-router-dom";
 import { MODES, NAV } from "@/lib/ui";
 
 /** Persistent 240px left rail: identity, persona cards, section nav. */
-export default function Sidebar({ mode, onMode, health }) {
+export default function Sidebar({ mode, onMode, health, onNewChat }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-edge bg-sidebar">
-      <div className="flex items-center gap-2.5 px-5 py-5">
+      <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
         <span className="text-lg text-gold">◆</span>
         <span className="text-lg font-semibold tracking-tight">Eka</span>
         <span
@@ -19,6 +19,16 @@ export default function Sidebar({ mode, onMode, health }) {
                 : "bg-neutral-600"
           }`}
         />
+      </div>
+
+      {/* Clears only the CURRENT mode's session — the other three keep theirs. */}
+      <div className="px-3 pb-4">
+        <button
+          onClick={onNewChat}
+          className="w-full rounded-xl border border-edge bg-card px-3.5 py-2.5 text-sm text-neutral-300 transition-all duration-200 hover:border-gold/40 hover:text-gold"
+        >
+          ＋ New chat
+        </button>
       </div>
 
       <p className="px-5 pb-2 text-[11px] uppercase tracking-wider text-neutral-600">

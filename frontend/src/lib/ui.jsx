@@ -69,6 +69,60 @@ export const NAV = [
   { to: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
+/**
+ * The three languages supported end to end. Each one costs work in three
+ * places — persona prompt, TTS voice, STT — so this list is deliberately short
+ * rather than "every language Sarvam accepts".
+ */
+export const LANGUAGES = [
+  { id: "en-IN", short: "EN", flag: "🇬🇧", label: "English" },
+  { id: "hi-IN", short: "HI", flag: "🇮🇳", label: "Hindi" },
+  { id: "kn-IN", short: "KN", flag: "🇮🇳", label: "Kannada" },
+];
+export const langOf = (id) => LANGUAGES.find((l) => l.id === id) ?? LANGUAGES[0];
+
+const LANG_KEY = "eka_language";
+export const getLanguage = () => {
+  try {
+    const v = localStorage.getItem(LANG_KEY);
+    return LANGUAGES.some((l) => l.id === v) ? v : "en-IN";
+  } catch {
+    return "en-IN";
+  }
+};
+export const setLanguage = (id) => {
+  try {
+    localStorage.setItem(LANG_KEY, id);
+  } catch {
+    /* private browsing */
+  }
+};
+
+/**
+ * One session per mode, persisted.
+ *
+ * Sessions live in localStorage rather than component state so switching modes
+ * — or reloading — returns to that mode's conversation instead of silently
+ * starting a new one. The backend takes `mode` per message, not per session,
+ * so a session can legitimately outlive a mode switch.
+ */
+const sessionKey = (mode) => `eka_session_${mode}`;
+export const getSession = (mode) => {
+  try {
+    return localStorage.getItem(sessionKey(mode)) || null;
+  } catch {
+    return null;
+  }
+};
+export const setSession = (mode, id) => {
+  try {
+    if (id) localStorage.setItem(sessionKey(mode), id);
+    else localStorage.removeItem(sessionKey(mode));
+  } catch {
+    /* private browsing */
+  }
+};
+
 export const errText = (err) =>
   err instanceof EkaApiError
     ? `${err.message}${err.status ? ` (${err.status})` : ""}`

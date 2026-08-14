@@ -218,7 +218,7 @@ export function getOrCreateUserId() {
  * this throws an EkaApiError whose message says voice is unavailable, so
  * callers can catch that specific case and just keep showing text.
  */
-async function synthesize(text, mode = "founder") {
+async function synthesize(text, mode = "founder", language = "en-IN") {
   const path = "/voice/tts";
   const url = `${BASE_URL}${path}`;
 
@@ -227,7 +227,7 @@ async function synthesize(text, mode = "founder") {
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, mode }),
+      body: JSON.stringify({ text, mode, language }),
     });
   } catch (networkErr) {
     throw new EkaApiError(`Could not reach Eka API at ${url}: ${networkErr.message}`, {
@@ -380,12 +380,13 @@ export const ekaAPI = {
    * always store that back, every reply carries the current session id.
    * @returns {Promise<import(".").ChatResponse>}
    */
-  sendMessage(sessionId, userId, message, mode = "founder") {
+  sendMessage(sessionId, userId, message, mode = "founder", language = "en-IN") {
     return apiCall("POST", "/chat/send", {
       message,
       user_id: userId,
       session_id: sessionId || null,
       mode,
+      language,
     }).then(stripInternals);
   },
 
@@ -543,9 +544,11 @@ export const ekaAPI = {
    * @param {string} [filename]
    * @returns {Promise<{text: string, backend: string|null}>}
    */
-  transcribe(audioBlob, filename = "recording.webm") {
+  transcribe(audioBlob, filename = "recording.webm", language = "en-IN") {
     const formData = new FormData();
     formData.append("file", audioBlob, filename);
+    // Multipart endpoint, so language rides as a form field, not JSON.
+    formData.append("language", language);
     return apiCall("POST", "/voice/stt", formData, { isFormData: true });
   },
 

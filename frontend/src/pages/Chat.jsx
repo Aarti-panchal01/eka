@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ekaAPI from "@/api/ekaClient";
-import { errText, modeOf, userId } from "@/lib/ui";
+import {
+  errText,
+  getSession,
+  langOf,
+  modeOf,
+  setSession,
+  userId,
+} from "@/lib/ui";
 
-export default function Chat({ mode, health }) {
-  const [sessionId, setSessionId] = useState(null);
+export default function Chat({ mode, language, health, newChatToken }) {
+  const [sessionId, setSessionId] = useState(() => getSession(mode));
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [waking, setWaking] = useState(false);
   const [toast, setToast] = useState(null);
+  const [resumed, setResumed] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [emotion, setEmotion] = useState(false);
   const [speak, setSpeak] = useState(false);
@@ -21,22 +30,70 @@ export default function Chat({ mode, health }) {
   const input = useRef(null);
 
   const persona = modeOf(mode);
+  const lang = langOf(language);
 
-  // Toasts auto-clear; a mic error should not sit on screen forever.
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // A new persona is a new conversation — the backend keys history by session.
+  /**
+   * Switching mode resumes that mode's own conversation.
+   *
+   * The backend takes `mode` per message rather than per session, so a session
+   * survives a mode switch — there is no reason to throw the history away, and
+   * doing so was what made Eka feel amnesiac.
+   */
   useEffect(() => {
     playback.current?.stop?.();
     recognition.current?.abort?.();
+    setToast(null);
+
+    const saved = getSession(mode);
+    setSessionId(saved);
+    setMessages([]);
+    setResumed(false);
+
+    if (!saved) return;
+    let alive = true;
+    setLoadingHistory(true);
+    ekaAPI
+      .getMessages(saved, 200)
+      .then((rows) => {
+        if (!alive) return;
+        const history = (Array.isArray(rows) ? rows : (rows?.items ?? [])).map(
+          (m) => ({
+            role: m.role === "user" ? "user" : "eka",
+            content: m.content ?? m.text ?? "",
+            mode: m.mode || mode,
+          })
+        );
+        setMessages(history);
+        setResumed(history.length > 0);
+      })
+      .catch(() => {
+        // A stale session id (server-side cleanup, different device) should not
+        // block a new conversation — drop it and start fresh.
+        if (alive) setSession(mode, null);
+      })
+      .finally(() => alive && setLoadingHistory(false));
+    return () => {
+      alive = false;
+    };
+  }, [mode]);
+
+  // "New chat" bumps a token in App rather than calling in here.
+  useEffect(() => {
+    if (!newChatToken) return;
+    playback.current?.stop?.();
+    setSession(mode, null);
     setSessionId(null);
     setMessages([]);
+    setResumed(false);
     setToast(null);
-  }, [mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newChatToken]);
 
   useEffect(() => {
     const el = transcript.current;
@@ -51,17 +108,19 @@ export default function Chat({ mode, health }) {
     []
   );
 
-  const narrate = useCallback(async (text, forMode) => {
-    try {
-      playback.current?.stop?.();
-      const blob = await ekaAPI.synthesize(text, forMode);
-      playback.current = ekaAPI.playAudio(blob);
-      await playback.current;
-    } catch {
-      // Voice is a bonus. A 503 here must never touch the text reply.
-      setToast("Voice output unavailable right now.");
-    }
-  }, []);
+  const narrate = useCallback(
+    async (text, forMode) => {
+      try {
+        playback.current?.stop?.();
+        const blob = await ekaAPI.synthesize(text, forMode, language);
+        playback.current = ekaAPI.playAudio(blob);
+        await playback.current;
+      } catch {
+        setToast("Voice output unavailable right now.");
+      }
+    },
+    [language]
+  );
 
   const send = useCallback(
     async (text) => {
@@ -69,16 +128,24 @@ export default function Chat({ mode, health }) {
       if (!body || sending) return;
 
       setToast(null);
+      setResumed(false);
       setDraft("");
       setMessages((p) => [...p, { role: "user", content: body }]);
       setSending(true);
       const wake = setTimeout(() => setWaking(true), 4000);
 
       try {
-        const res = await ekaAPI.sendMessage(sessionId, userId(), body, mode);
-        // Turn one goes out with null and the backend mints the session. Store
-        // it back or every message silently starts a new conversation.
-        if (res.session_id) setSessionId(res.session_id);
+        const res = await ekaAPI.sendMessage(
+          sessionId,
+          userId(),
+          body,
+          mode,
+          language
+        );
+        if (res.session_id && res.session_id !== sessionId) {
+          setSessionId(res.session_id);
+          setSession(mode, res.session_id);
+        }
         setMessages((p) => [
           ...p,
           {
@@ -102,34 +169,28 @@ export default function Chat({ mode, health }) {
         input.current?.focus();
       }
     },
-    [mode, narrate, sending, sessionId, speak]
+    [language, mode, narrate, sending, sessionId, speak]
   );
 
   /**
-   * Speech-to-text runs entirely in the browser.
-   *
-   * The Web Speech API needs no backend call, so there is no CORS surface and
-   * no round trip — the transcript lands in the input box in about a second.
-   * It is Chromium-only, which is why the unsupported branch says so plainly
-   * rather than failing silently on Firefox.
+   * Speech-to-text runs entirely in the browser: no backend call, no CORS
+   * surface, transcript in about a second. Chromium-only, so the unsupported
+   * branch says so rather than failing silently on Firefox.
    */
   function toggleMic() {
     if (listening) {
       recognition.current?.stop();
       return;
     }
-    const SpeechRec =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
       setToast("Mic not supported in this browser — try Chrome or Edge.");
       return;
     }
-
     const rec = new SpeechRec();
-    rec.lang = "en-IN";
+    rec.lang = language; // en-IN / hi-IN / kn-IN
     rec.continuous = false;
     rec.interimResults = false;
-
     rec.onresult = (e) => {
       const text = e.results[0][0].transcript;
       setDraft((prev) => (prev ? `${prev} ${text}` : text));
@@ -144,7 +205,6 @@ export default function Chat({ mode, health }) {
       );
     };
     rec.onend = () => setListening(false);
-
     recognition.current = rec;
     setListening(true);
     rec.start();
@@ -160,6 +220,9 @@ export default function Chat({ mode, health }) {
           </h1>
           <p className="mt-1 text-xs text-neutral-500">{persona.hint}</p>
         </div>
+        <span className="chip ml-1" title={lang.label}>
+          {lang.flag} {lang.short}
+        </span>
 
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -195,7 +258,19 @@ export default function Chat({ mode, health }) {
 
       <main ref={transcript} className="scroll-thin flex-1 overflow-y-auto px-7 py-7">
         <div className="mx-auto flex max-w-3xl flex-col gap-4">
-          {messages.length === 0 && (
+          {resumed && (
+            <div className="self-center rounded-full border border-edge bg-card px-3 py-1 text-[11px] text-neutral-500">
+              ↩ continuing your {persona.label.toLowerCase()} conversation
+            </div>
+          )}
+
+          {loadingHistory && messages.length === 0 && (
+            <p className="mt-20 text-center text-sm text-neutral-600">
+              Loading your conversation…
+            </p>
+          )}
+
+          {!loadingHistory && messages.length === 0 && (
             <div className="mt-20 text-center">
               <p className="text-4xl">{persona.icon}</p>
               <p className={`mt-4 text-lg ${persona.accent}`}>{persona.hint}.</p>
@@ -210,7 +285,7 @@ export default function Chat({ mode, health }) {
           ))}
 
           {sending && (
-            <div className="card animate-rise self-start px-4 py-3 text-neutral-500 shadow-card">
+            <div className="card animate-rise self-start px-4 py-3 text-neutral-500">
               {waking ? (
                 <span className="text-sm">Waking Eka up, hang on…</span>
               ) : (
@@ -286,7 +361,6 @@ function Bubble({ msg }) {
       </div>
     );
   }
-
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
@@ -296,11 +370,10 @@ function Bubble({ msg }) {
       </div>
     );
   }
-
   const persona = modeOf(msg.mode);
   return (
     <div className="animate-rise w-full">
-      <div className="card px-5 py-4 text-[15px] leading-relaxed text-neutral-100 shadow-card">
+      <div className="card px-5 py-4 text-[15px] leading-relaxed text-neutral-100">
         <p className="whitespace-pre-wrap">{msg.content}</p>
       </div>
       <div className="mt-1.5 flex items-center gap-2 pl-1 text-[11px]">

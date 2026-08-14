@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 
 from models.schemas import STTResponse, TTSRequest
 from services.asr_service import asr_service
@@ -15,14 +15,21 @@ MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
 
 @router.post("/stt", response_model=STTResponse)
-async def speech_to_text(file: UploadFile = File(...)) -> STTResponse:
+async def speech_to_text(
+    file: UploadFile = File(...),
+    # Form field rather than JSON: this endpoint is multipart. Optional so
+    # existing callers keep working on the configured default.
+    language: str = Form("en-IN"),
+) -> STTResponse:
     audio = await file.read()
     if not audio:
         raise HTTPException(status_code=400, detail="Audio file is empty")
     if len(audio) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=413, detail="Audio too large (max 25MB)")
 
-    text = await asr_service.transcribe(audio, file.filename or "audio.wav")
+    text = await asr_service.transcribe(
+        audio, file.filename or "audio.wav", language=language
+    )
     return STTResponse(text=text, backend=asr_service._last_backend)
 
 
@@ -31,7 +38,9 @@ async def speech_to_text(file: UploadFile = File(...)) -> STTResponse:
     responses={200: {"content": {"audio/wav": {}}}, 503: {"description": "TTS unavailable"}},
 )
 async def text_to_speech(payload: TTSRequest) -> Response:
-    audio = await tts_service.synthesize(payload.text, payload.mode)
+    audio = await tts_service.synthesize(
+        payload.text, payload.mode, language=payload.language
+    )
     if not audio:
         # 503 rather than 500: voice is an enhancement, and the client is
         # expected to carry on showing the text reply.

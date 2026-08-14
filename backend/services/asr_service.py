@@ -31,7 +31,10 @@ class ASRService:
         self._last_backend: Optional[str] = None
 
     async def transcribe(
-        self, audio_bytes: bytes, filename: str = "audio.wav"
+        self,
+        audio_bytes: bytes,
+        filename: str = "audio.wav",
+        language: Optional[str] = None,
     ) -> str:
         """Audio bytes -> transcript. Raises HTTPException if all tiers fail."""
         from fastapi import HTTPException
@@ -45,8 +48,10 @@ class ASRService:
             )
 
         if settings.SARVAM_API_KEY:
+            # Caller language wins; SARVAM_LANGUAGE is only the fallback.
+            declared = language or settings.SARVAM_LANGUAGE
             transcript, confidence = await self._sarvam(
-                audio_bytes, filename, settings.SARVAM_LANGUAGE
+                audio_bytes, filename, declared
             )
             if transcript is not None:
                 # A low-confidence result usually means the speaker wasn't

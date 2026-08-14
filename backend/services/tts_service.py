@@ -27,6 +27,36 @@ logger = logging.getLogger(__name__)
 # Split after . ! ? … or a Devanagari danda, when followed by whitespace.
 _SENTENCE_END = re.compile(r"(?<=[.!?।…])\s+")
 
+# Anything ending in a question mark, Latin or Devanagari.
+_IS_QUESTION = re.compile(r"[?？]\s*$")
+
+# Per-mode delivery. SPEAKER NAMES ARE NOT ARBITRARY — probed against the live
+# API on 2026-08-14, bulbul:v2 accepts exactly: anushka, hitesh, karun,
+# manisha, vidya. ankit / amol / maya are NOT valid and 400 the request, so a
+# plausible-looking name here silently kills voice for that persona.
+#
+# pitch is a FLOAT IN [-1, 1], not semitones — the API rejects anything above
+# 1 with "pitch: Input should be less than or equal to 1". pace accepted the
+# whole 0.3-3.0 range tested; these values stay conservative.
+VOICE_PROFILES: Dict[str, Dict] = {
+    # Energetic, front-footed. Slight lift so it does not read as bored.
+    "founder": {"speaker": "karun", "pace": 1.0, "pitch": 0.2},
+    # Deliberate. The pauses are the point.
+    "chanakya": {"speaker": "hitesh", "pace": 0.9, "pitch": 0.0},
+    # Warm and unhurried.
+    "gita": {"speaker": "anushka", "pace": 0.85, "pitch": 0.05},
+    # Slowest, calmest — it is asking, not telling.
+    "reflection": {"speaker": "manisha", "pace": 0.8, "pitch": -0.05},
+}
+_DEFAULT_PROFILE = VOICE_PROFILES["reflection"]
+
+# A question read at statement pitch is the single thing that makes synthetic
+# speech sound robotic. Bumping the whole clause is cruder than real prosody
+# but it is audibly better, and it costs one extra request per question run.
+_QUESTION_PITCH_LIFT = 0.3
+
+SUPPORTED_LANGUAGES = ("en-IN", "hi-IN", "kn-IN")
+
 
 class TTSService:
     def __init__(self) -> None:
@@ -35,7 +65,12 @@ class TTSService:
         self._available: Optional[bool] = None
 
     # ---------------------------------------------------------- public API
-    async def synthesize(self, text: str, mode: str = "reflection") -> Optional[bytes]:
+    async def synthesize(
+        self,
+        text: str,
+        mode: str = "reflection",
+        language: Optional[str] = None,
+    ) -> Optional[bytes]:
         """Speak `text` in `mode`'s voice. Returns WAV bytes or None."""
         text = self._clean(text)
         if not text:
@@ -45,18 +80,30 @@ class TTSService:
             logger.debug("SARVAM_API_KEY not set — skipping TTS")
             return None
 
-        cache_key = (text[:100], mode)
+        language = language if language in SUPPORTED_LANGUAGES else settings.SARVAM_LANGUAGE
+
+        cache_key = (text[:100], f"{mode}:{language}")
         cached = self._cache.get(cache_key)
         if cached is not None:
             self._cache.move_to_end(cache_key)
             return cached
 
-        speaker = settings.voice_for_mode(mode)
-        chunks = self._chunk(text, settings.TTS_CHUNK_CHARS)
+        profile = VOICE_PROFILES.get(mode, _DEFAULT_PROFILE)
+        # Runs of same-type sentences are batched, so "statement. question?
+        # statement." is three requests rather than one per sentence — enough
+        # to get flat / rising / flat without paying per sentence.
+        chunks = self._prosody_chunks(text, settings.TTS_CHUNK_CHARS)
 
         audio_parts: List[bytes] = []
-        for index, chunk in enumerate(chunks):
-            part = await self._request(chunk, speaker)
+        for index, (chunk, is_question) in enumerate(chunks):
+            pitch = profile["pitch"] + (_QUESTION_PITCH_LIFT if is_question else 0.0)
+            part = await self._request(
+                chunk,
+                speaker=profile["speaker"],
+                language=language,
+                pace=profile["pace"],
+                pitch=max(-1.0, min(1.0, pitch)),
+            )
             if part is None:
                 # Partial audio beats no audio — return what we have.
                 if audio_parts:
@@ -81,31 +128,36 @@ class TTSService:
         return audio
 
     # --------------------------------------------------------------- HTTP
-    async def _request(self, text: str, speaker: str) -> Optional[bytes]:
+    async def _request(
+        self,
+        text: str,
+        speaker: str,
+        language: str,
+        pace: float = 1.0,
+        pitch: float = 0.0,
+    ) -> Optional[bytes]:
         headers = {
             "api-subscription-key": settings.SARVAM_API_KEY,
             "Content-Type": "application/json",
         }
 
+        common = {
+            "target_language_code": language,
+            "speaker": speaker,
+            "model": settings.SARVAM_TTS_MODEL,
+            "speech_sample_rate": settings.SARVAM_SAMPLE_RATE,
+            # Expands numerals, dates and abbreviations into speakable words.
+            # Without it "10" reads as a digit and the line stumbles.
+            "enable_preprocessing": True,
+            "pace": pace,
+            "pitch": pitch,
+        }
+
         # Sarvam has shipped two request shapes across model versions. Try the
         # documented v4 shape first, then the newer single-`text` shape.
         payloads = [
-            {
-                "inputs": [text],
-                "target_language_code": settings.SARVAM_LANGUAGE,
-                "speaker": speaker,
-                "model": settings.SARVAM_TTS_MODEL,
-                "speech_sample_rate": settings.SARVAM_SAMPLE_RATE,
-                "enable_preprocessing": True,
-            },
-            {
-                "text": text,
-                "target_language_code": settings.SARVAM_LANGUAGE,
-                "speaker": speaker,
-                "model": settings.SARVAM_TTS_MODEL,
-                "speech_sample_rate": settings.SARVAM_SAMPLE_RATE,
-                "enable_preprocessing": True,
-            },
+            {"inputs": [text], **common},
+            {"text": text, **common},
         ]
 
         for attempt, payload in enumerate(payloads):
@@ -156,6 +208,33 @@ class TTSService:
             return None
 
     # ------------------------------------------------------------ helpers
+    @classmethod
+    def _prosody_chunks(cls, text: str, limit: int) -> List[Tuple[str, bool]]:
+        """Split into (chunk, is_question) runs, batching same-type sentences.
+
+        One request per sentence would be accurate and slow. Grouping runs of
+        the same type keeps "statement. question? statement." to three calls
+        while still letting each run carry its own pitch.
+        """
+        sentences = [s for s in _SENTENCE_END.split(text.strip()) if s.strip()]
+        if not sentences:
+            return []
+
+        runs: List[Tuple[str, bool]] = []
+        buffer, buffer_q = "", None
+        for sentence in sentences:
+            is_q = bool(_IS_QUESTION.search(sentence))
+            too_long = buffer and len(buffer) + len(sentence) + 1 > limit
+            if buffer and (is_q != buffer_q or too_long):
+                runs.append((buffer.strip(), buffer_q))
+                buffer, buffer_q = sentence, is_q
+            else:
+                buffer = f"{buffer} {sentence}".strip() if buffer else sentence
+                buffer_q = is_q
+        if buffer:
+            runs.append((buffer.strip(), bool(buffer_q)))
+        return runs
+
     @staticmethod
     def _clean(text: str) -> str:
         """Strip markdown so the voice doesn't read asterisks aloud."""

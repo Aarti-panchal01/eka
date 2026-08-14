@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import ekaAPI from "@/api/ekaClient";
 import {
   ErrorBox,
+  LANGUAGES,
   Loading,
   MODES,
   PageHeader,
@@ -21,7 +22,7 @@ const VOICES = [
   { id: "alien_ethereal", label: "Alien · Ethereal" },
 ];
 
-export default function Settings({ mode, onMode }) {
+export default function Settings({ mode, onMode, language, onLanguage }) {
   const { data, loading, error, reload } = useAsync(
     () => ekaAPI.getPreferences(userId()),
     []
@@ -108,6 +109,34 @@ export default function Settings({ mode, onMode }) {
           );
         })}
       </div>
+
+      <h2 className="mb-3 text-[11px] uppercase tracking-wider text-neutral-600">
+        Language
+      </h2>
+      <div className="mb-7 grid grid-cols-3 gap-3">
+        {LANGUAGES.map((l) => {
+          const active = l.id === language;
+          return (
+            <button
+              key={l.id}
+              onClick={() => onLanguage(l.id)}
+              className={`rounded-xl border px-4 py-3.5 text-center transition-all duration-200 ${
+                active
+                  ? "border-gold bg-gold-soft text-gold"
+                  : "border-edge bg-card text-neutral-300 hover:border-gold/40"
+              }`}
+            >
+              <div className="text-xl">{l.flag}</div>
+              <div className="mt-1 text-sm font-medium">{l.label}</div>
+              <div className="text-[11px] text-neutral-500">{l.id}</div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="-mt-4 mb-7 text-xs text-neutral-600">
+        Changes the reply language, the voice, and speech recognition together.
+        The persona stays the same — founder is still blunt in Hindi.
+      </p>
 
       <section className="card px-5">
         <Row

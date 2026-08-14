@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Mode = Literal["founder", "chanakya", "gita", "reflection"]
+
+# Sarvam TTS and STT both take BCP-47-ish codes in this shape, and the persona
+# prompt appends a script instruction per language, so all three layers key off
+# the same literal. Probed 2026-08-14: all three synthesize successfully.
+Language = Literal["en-IN", "hi-IN", "kn-IN"]
 Priority = Literal["high", "normal", "low", "excluded"]
 Complexity = Literal["simple", "normal", "complex", "deep"]
 GoalStatus = Literal["active", "completed", "paused"]
@@ -20,6 +25,10 @@ class ChatRequest(BaseModel):
     user_id: str
     session_id: Optional[str] = None
     mode: Mode = "founder"
+    # Only these three are supported end to end: persona prompt, TTS voice and
+    # STT all have to agree, and each extra language is a real cost in all
+    # three places rather than a config flag.
+    language: Language = "en-IN"
     # Client hint only; the complexity classifier still runs and wins.
     stream: bool = False
 
@@ -172,6 +181,7 @@ class MemoryListResponse(BaseModel):
 class TTSRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
     mode: Mode = "founder"
+    language: Language = "en-IN"
 
 
 class STTResponse(BaseModel):
