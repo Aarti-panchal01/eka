@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import ekaAPI from "@/api/ekaClient";
 import Footer from "@/components/Footer";
@@ -8,6 +8,7 @@ import { getLanguage, setLanguage as persistLanguage } from "@/lib/ui";
 import Chat from "@/pages/Chat";
 import Goals from "@/pages/Goals";
 import Memory from "@/pages/Memory";
+import NotFound from "@/pages/NotFound";
 import Reflections from "@/pages/Reflections";
 import Settings from "@/pages/Settings";
 
@@ -85,6 +86,12 @@ export default function App() {
               />
             }
           />
+            {/* The sidebar labels this page "Knowledge" while the route is
+                /memory, so /knowledge is the mistake the UI itself invites.
+                Redirect rather than 404 it — replace so Back does not bounce
+                the user straight into the redirect again. */}
+            <Route path="/knowledge" element={<Navigate to="/memory" replace />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
         <Footer />
