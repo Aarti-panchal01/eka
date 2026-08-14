@@ -1,36 +1,64 @@
-# Eka — Your Lifelong AI Companion
+<div align="center">
 
-Four AI personas. Semantic memory that survives every conversation. Indian
-voice, in your language.
+# Eka
 
-**[Live →](https://the-eka.vercel.app)** · [API health](https://eka-backend-doau.onrender.com/health)
+**Your lifelong AI companion — four personas, semantic memory that survives every
+conversation, and an Indian voice in your language.**
+
+[![Live](https://img.shields.io/badge/demo-the--eka.vercel.app-f5a623?style=flat-square)](https://the-eka.vercel.app)
+[![API](https://img.shields.io/badge/API-health-2ea44f?style=flat-square)](https://eka-backend-doau.onrender.com/health)
+[![Models](https://img.shields.io/badge/🤗-4%20models-yellow?style=flat-square)](https://huggingface.co/amijackofalltrades)
+[![Python](https://img.shields.io/badge/python-3.13-3776ab?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-Vite-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+
+</div>
+
+---
+
+Not a chat wrapper. The interesting part is everything between the question and
+the model call: a complexity router that decides how much retrieval a message
+deserves, a learned ranker that scores memories by usefulness rather than
+similarity, and a data pipeline that refuses most of what it generates.
+
+Every number below is measured and reproducible. The ones that are unflattering
+are here too, with the reason.
+
+## Contents
+
+[What it does](#what-eka-does-differently) ·
+[Personas](#the-four-personas) ·
+[Architecture](#architecture) ·
+[Under the hood](#under-the-hood) ·
+[Trained models](#trained-models) ·
+[Evaluation](#evaluation) ·
+[Fine-tuning](#fine-tuning--validated-paused) ·
+[Status](#status) ·
+[Run it](#run-it) ·
+[Engineering notes](#engineering-notes)
 
 ---
 
 ## What Eka does differently
 
-Not a chat wrapper. The interesting part is everything between the question and
-the model call.
-
 - **Remembers across conversations** — semantic RAG over your own history, not
   a rolling context window
 - **Routes by complexity** — four levels, and cheap questions never pay for
   deep retrieval
+- **Ranks memories by usefulness**, not just similarity — a learned ranker,
+  not cosine
 - **Speaks your language** — English, Hindi, Kannada, with per-persona voices
 - **Four distinct minds**, each with its own dataset, prompt and voice
-- **Ranks memories by usefulness**, not just similarity
 
 ## The four personas
 
-**⚡ Founder** — Brutally honest. Challenges assumptions, uses real startup
-frameworks, ends on a sharp question.
-
-**🛡 Chanakya** — Strategic and cold. Power dynamics, leverage, Arthashastra.
-*"What is the one move available to you right now?"*
-
-**✨ Gita** — Bhagavad Gita wisdom. Dharma, karma, detachment from outcomes.
-
-**👁 Reflection** — CBT/ACT shaped. Never advises. Reflects, observes, asks.
+| | Persona | Behaviour |
+|---|---|---|
+| ⚡ | **Founder** | Brutally honest. Challenges assumptions, uses real startup frameworks, ends on a sharp question. |
+| 🛡 | **Chanakya** | Strategic and cold. Power dynamics, leverage, Arthashastra. *"What is the one move available to you right now?"* |
+| ✨ | **Gita** | Bhagavad Gita wisdom. Dharma, karma, detachment from outcomes. |
+| 👁 | **Reflection** | CBT/ACT shaped. Never advises. Reflects, observes, asks. |
 
 ---
 
@@ -56,23 +84,19 @@ Most messages do not need deep retrieval. Paying for it anyway is what makes
 these systems slow and expensive.
 
 | Level | Memories | History turns | Candidate pool |
-|---|---|---|---|
+|---|---:|---:|---:|
 | Simple | 1 | 2 | 10 |
 | Normal | 2 | 3 | 15 |
 | Complex | 3 | 5 | 25 |
 | Deep | 5 | 7 | 40 |
 
-### Why a learned ranker
+---
 
-Cosine similarity returns what is *similar*, not what is *useful*. A memory
-from yesterday usually beats a semantically closer one from a year ago, and
-something you marked important beats both.
-
-**LightGBM `LGBMRanker`, NDCG@3 = 0.9466** on held-out data, over seven
-features: similarity, recency, priority, access count, length, mode match,
-provenance. Reproducible with `python training/train_ranker_local.py`.
+## Under the hood
 
 ### Data pipeline — 3,200 pairs, quality-gated
+
+Anyone can prompt an LLM into 3,200 rows. The work is refusing most of them.
 
 | persona | pairs | train / val |
 |---|---:|---:|
@@ -82,18 +106,53 @@ provenance. Reproducible with `python training/train_ranker_local.py`.
 | reflection | 1,000 | 900 / 100 |
 
 Generated through a rotating pool of four free providers (Groq, Mistral ×4
-keys, Google, OpenRouter) with per-key token pacing. Five gates plus an LLM
-judge run on every pair: persona markers, response-length bounds,
-one-question discipline, advice-leakage detection for `reflection`, and
-near-duplicate rejection.
+keys, Google, OpenRouter) with per-key token pacing. Every pair passes five
+gates plus an LLM judge before it can reach training, and a persona that
+finishes short is regenerated rather than shipped:
 
-**The duplicate threshold is 0.75 Jaccard, and it is empirical, not chosen for
-looking round.** At 0.75: 100% recall on clones, 0% false positives on the
-hardest real collision. At 0.85 clone recall collapses to 21%.
+- **Persona markers** — does the response actually behave like the persona
+- **Length floors and ceilings** — 150–250 words, enforced
+- **One-question discipline** — exactly one closing question, not three
+- **Advice-leakage detection** — `reflection` must never give advice, and a
+  regex misses paraphrase, so an 8B LLM judge classifies it semantically
+- **Near-duplicate rejection** — Jaccard at **0.75**
 
-Plus **6,000 embedding triplets** over 3,200 unique anchors, negatives drawn
-from a *different* persona — exactly the confusion a retriever needs to stop
-making.
+**That threshold is derived, not chosen for looking round.** At 0.75: 100%
+recall on clones, 0% false positives against the hardest real collision in the
+corpus. At 0.85, clone recall collapses to **21%**. Jaccard is always the lower
+of the two measures — for equal-sized sets, cosine 0.75 is Jaccard 0.60 — which
+is why the number cannot be lifted from a paper that used cosine.
+
+The gate refuses to publish anything not marked `ok_to_train`, because the next
+step is a multi-hour GPU run that bakes any defect permanently into weights.
+
+### Persona-conditioned retrieval
+
+**6,000 embedding triplets over 3,200 unique anchors**, and the interesting
+part is the negatives: each one is drawn from a **different persona's**
+conversations.
+
+That trains the retriever on the confusion that actually matters here. Generic
+negatives teach "these two texts are unrelated", which cosine similarity
+already knows. Persona negatives teach something harder — *the same topic,
+discussed in a different register, is not the memory you want.* Founder talking
+about failure and Gita talking about failure are semantically adjacent and
+functionally opposite.
+
+### A learned ranker, because similarity is the wrong objective
+
+Cosine returns what is *similar*, not what is *useful*. A memory from yesterday
+usually beats a semantically closer one from a year ago, and something the user
+flagged important beats both.
+
+**LightGBM `LGBMRanker`, NDCG@3 = 0.9466** on held-out data, over seven
+features: similarity, recency, priority, access count, length, mode match,
+provenance. Reproducible with `python training/train_ranker_local.py`.
+
+Its honest weakness, stated because a reader will find it: it is trained on
+synthetic data from `make_dataset()`. `feedback_service` is now collecting
+implicit relevance labels from live sessions — which memories were retrieved,
+and whether the user stayed on that thread — to retrain against real signal.
 
 ### Voice
 
@@ -101,7 +160,7 @@ making.
 - **TTS** — Sarvam `bulbul:v3`, per-persona speaker and pace:
 
 | persona | speaker | pace | same line |
-|---|---|---|---|
+|---|---|---:|---:|
 | founder | aditya | 1.10 | 4.51s |
 | chanakya | ashutosh | 0.90 | 5.30s |
 | gita | priya | 0.85 | 5.89s |
@@ -115,7 +174,7 @@ same two sentences.
 
 ## Trained models
 
-Three supervised models, trained and live on the Hub.
+Four supervised models, trained and live on the Hub.
 
 | Model | Task | Result | Data |
 |---|---|---|---|
@@ -130,7 +189,7 @@ Three supervised models, trained and live on the Hub.
 published rather than summarised:
 
 | class | precision | recall | F1 | support |
-|---|---|---|---|---|
+|---|---:|---:|---:|---:|
 | positive | 0.797 | 0.853 | 0.824 | 1,873 |
 | neutral | 0.733 | 0.679 | 0.705 | 1,962 |
 | negative | 0.648 | 0.687 | 0.667 | 891 |
@@ -152,7 +211,7 @@ dataset, not the model.**
 Word count per class, measured:
 
 | class | word range | median |
-|---|---|---|
+|---|---:|---:|
 | simple | 1–7 | 3 |
 | normal | 5–17 | 6 |
 | complex | 21–38 | 27 |
@@ -171,6 +230,8 @@ is what the deployed logging now collects.
 That caveat applies to the ranker too — same synthetic-data provenance, same
 reason `feedback_service` exists.
 
+---
+
 ## Evaluation
 
 n=50 held-out prompts from `founder_val.jsonl` — the split that was actually
@@ -178,14 +239,14 @@ withheld from training. Four mechanical checks per response, no judge model.
 `gold` scores the dataset's own answers, as an upper bound.
 
 | Configuration | Persona score | Ends w/ question | Uses framework | No hedging | Words in band | Mean words |
-|---|---|---|---|---|---|---|
+|---|---|---:|---:|---:|---:|---:|
 | Training data (gold) | **94%** (3.74/4) | 78% | 100% | 96% | 100% | 189 |
 | Base + prompt, no RAG | **93%** (3.73/4) | 100% | 100% | 100% | 73% | 159 |
 | RAG + ranker (deployed) | **78%** (3.14/4) | 90% | 82% | 82% | 60% | 215 |
 | Fine-tuned + RAG + ranker | _pending_ | — | — | — | — | — |
 
 | Configuration | Memories retrieved | Precision@3 | Median latency |
-|---|---|---|---|
+|---|---:|---|---:|
 | No RAG | — | — | **1,168 ms** |
 | RAG + ranker | 4.7 | _needs labels_ | **16,796 ms** |
 
@@ -193,7 +254,9 @@ withheld from training. Four mechanical checks per response, no judge model.
 
 **A base model with the persona prompt already scores 93% against gold's 94%.**
 On these four checks, prompting is essentially at the ceiling — which sets a
-real bar for the fine-tune to clear rather than assuming it helps.
+real bar for any fine-tune to clear rather than assuming it helps. Finding that
+out before spending GPU hours is the entire point of building the harness
+first.
 
 **The two rows are not a clean ablation.** The no-RAG row runs
 `llama-3.3-70b-versatile`; the deployed backend answers on
@@ -213,74 +276,9 @@ from real sessions to fill it.
 
 Reproduce: `python ml/eval/eval_harness.py`
 
-## The ML work
+---
 
-### A validation pipeline, not just a generation script
-
-Anyone can prompt an LLM into 3,200 rows. The work is refusing most of them.
-
-Every generated pair passes five gates plus a judge before it can reach
-training, and a persona that finishes short is regenerated rather than shipped:
-
-- **Persona markers** — does the response actually behave like the persona
-- **Length floors and ceilings** — 150–250 words, enforced
-- **One-question discipline** — exactly one closing question, not three
-- **Advice-leakage detection** — `reflection` must never give advice, and a
-  regex misses paraphrase, so an 8B LLM judge classifies it semantically
-- **Near-duplicate rejection** — Jaccard at **0.75**
-
-**That threshold is derived, not chosen for looking round.** At 0.75: 100%
-recall on clones, 0% false positives against the hardest real collision in the
-corpus. At 0.85, clone recall collapses to **21%**. Jaccard is always the lower
-of the two measures — for equal-sized sets, cosine 0.75 is Jaccard 0.60 — which
-is why the number cannot be lifted from a paper that used cosine.
-
-The gate refuses to publish anything not marked `ok_to_train`, because the next
-step is a multi-hour GPU run that bakes any defect permanently into weights.
-
-### Persona-conditioned retrieval
-
-6,000 triplets over 3,200 unique anchors, and the interesting part is the
-negatives: each one is drawn from a **different persona's** conversations.
-
-That trains the retriever on the confusion that actually matters here. Generic
-negatives teach "these two texts are unrelated", which cosine similarity
-already knows. Persona negatives teach something harder — *the same topic,
-discussed in a different register, is not the memory you want.* Founder talking
-about failure and Gita talking about failure are semantically adjacent and
-functionally opposite.
-
-### A ranker, because similarity is the wrong objective
-
-Cosine returns what is *similar*, not what is *useful*. A memory from yesterday
-usually beats a closer one from a year ago; something the user flagged
-important beats both.
-
-**LightGBM `LGBMRanker`, NDCG@3 = 0.9466**, seven features: similarity,
-recency, priority, access count, length, mode match, provenance. Trained,
-deployed, and reproducible in one command.
-
-Its honest weakness, stated because a reader will find it: it is trained on
-synthetic data from `make_dataset()`. `feedback_service` is now collecting
-implicit relevance labels from live sessions — which memories were retrieved,
-and whether the user stayed on that thread — to retrain against real signal.
-
-### An evaluation harness, and a result that cost something
-
-Four mechanical checks over a held-out split, no judge model, fully
-reproducible. It produced the most useful number in the project:
-
-**Base model + persona prompt scores 93%. The training data itself scores 94%.**
-
-Prompting is already at the ceiling of these metrics. That is a bar for the
-fine-tune to clear, not an assumption to coast on — and finding it before
-spending GPU hours is the entire point of building the harness first.
-
-It also caught a confound in its own output: the RAG row runs a different base
-model than the no-RAG row, so that comparison is reported as *not yet measured*
-rather than as a finding.
-
-### Training pipeline
+## Fine-tuning — validated, paused
 
 QLoRA fine-tuning validated end to end on a Colab T4: 4-bit NF4 load, LoRA
 attach (**20,185,088 trainable, 0.264% of 7,635,801,600**), optimizer steps
@@ -307,6 +305,8 @@ so the ceiling was already known before any GPU hour was spent. When an
 adapter completes it hot-swaps in behind the existing `LLM_MODE` switch and
 fills its pending row in the eval table.
 
+---
+
 ## Status
 
 | Component | State |
@@ -325,8 +325,8 @@ fills its pending row in the eval table.
 
 Personas today run from system prompts against Qwen2.5-7B via Groq, which is
 why the product works end to end right now. Complexity and sentiment run
-heuristic implementations — the free tier has 512MB, and `torch` plus
-`transformers` resident does not fit alongside FastAPI.
+heuristic implementations in production — the free tier has 512MB, and `torch`
+plus `transformers` resident does not fit alongside FastAPI.
 
 ---
 
@@ -343,7 +343,11 @@ heuristic implementations — the free tier has 512MB, and `torch` plus
 | Training | Colab T4 — QLoRA via TRL + PEFT, classifiers via Transformers |
 | Deploy | Vercel + Render |
 
+---
+
 ## Run it
+
+**Backend**
 
 ```bash
 git clone https://github.com/Aarti-panchal01/eka && cd eka
@@ -354,24 +358,33 @@ cd backend && pip install -r requirements.txt
 uvicorn main:app --reload --port 8091
 ```
 
+**Frontend**
+
 ```bash
 cd frontend && npm install
 echo "VITE_EKA_API_URL=http://localhost:8091" > .env
 npm run dev
 ```
 
-Regenerate data or train:
+**Regenerate data, or train**
 
 ```bash
-python ml/scripts/run_queue.py --all       # generate all four personas
-python ml/scripts/preprocess.py            # -> ChatML splits
-python scripts/preflight_kaggle.py --hub   # refuses to waste a GPU session
-python scripts/build_kaggle_notebooks.py   # notebooks are generated, not edited
+python ml/scripts/run_queue.py --all        # generate all four personas
+python ml/scripts/preprocess.py             # -> ChatML train/val splits
+python ml/scripts/upload_to_hf.py           # publish gated datasets
+python ml/eval/eval_harness.py              # reproduce the ablation table
+python training/train_ranker_local.py       # reproduce NDCG@3 0.9466
+
+python scripts/build_colab_notebooks.py     # notebooks are generated, not edited
+python scripts/build_colab_notebooks.py --check   # fails if a notebook drifted
 ```
+
+Notebooks in `ml/notebooks/` are generated from `training/*.py`. Edit the `.py`,
+never the `.ipynb` — `--check` fails the moment the two disagree.
 
 ---
 
-## Things that cost real time
+## Engineering notes
 
 Written into the code as comments so they are not rediscovered:
 
@@ -384,6 +397,9 @@ Written into the code as comments so they are not rediscovered:
   appeared to succeed.
 - **Verify the artifact, not the exit code.** A training notebook can finish
   cleanly having pushed nothing at all.
+- **A caught exception holds the GPU.** Its traceback keeps the failing frame
+  alive, and with it a 7.9GB model — so the persona that OOMs is the one
+  *after* the one that broke.
 - **A field that never enters the app cannot leak.** Routing internals are
   stripped in the API client, not hidden in the view.
 
@@ -398,6 +414,12 @@ C4GT DMP '26 Fellow
 [GitHub](https://github.com/Aarti-panchal01) ·
 [Portfolio](https://aarti-tech-portfolio.vercel.app)
 
+Licensed under [MIT](LICENSE).
+
 ---
 
+<div align="center">
+
 *Eka is Sanskrit for "one" — the one companion that knows you completely.*
+
+</div>
