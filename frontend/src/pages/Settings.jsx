@@ -76,12 +76,40 @@ export default function Settings({ mode, onMode, language, onLanguage }) {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  /**
+   * Page through every memory.
+   *
+   * The route caps `limit` at 100 (422 above that), so "just ask for 500" is
+   * not available — and silently taking the first 100 would make an export
+   * that looks complete and is not. Stops on a short page or when `total` is
+   * reached, with a hard page cap so a bad `total` cannot loop forever.
+   */
+  async function fetchAllMemories() {
+    const PAGE = 100;
+    const out = [];
+    for (let page = 0; page < 100; page += 1) {
+      const res = await ekaAPI.getMemories(userId(), {
+        skip: page * PAGE,
+        limit: PAGE,
+      });
+      const items = res?.items ?? [];
+      out.push(...items);
+      if (items.length < PAGE) break;
+      if (res?.total != null && out.length >= res.total) break;
+    }
+    return out;
+  }
+
   async function exportMemories() {
     setBusy(true);
     setNote(null);
     try {
-      const all = await ekaAPI.getMemories(userId(), { limit: 500 });
-      const blob = new Blob([JSON.stringify(all?.items ?? [], null, 2)], {
+      const items = await fetchAllMemories();
+      if (!items.length) {
+        setNote("Nothing to export yet.");
+        return;
+      }
+      const blob = new Blob([JSON.stringify(items, null, 2)], {
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
@@ -109,11 +137,11 @@ export default function Settings({ mode, onMode, language, onLanguage }) {
     setBusy(true);
     setNote(null);
     try {
-      const all = await ekaAPI.getMemories(userId(), { limit: 500 });
-      for (const m of all?.items ?? []) {
+      const items = await fetchAllMemories();
+      for (const m of items) {
         await ekaAPI.deleteMemory(m.id, userId());
       }
-      setNote("All memories deleted.");
+      setNote(`Deleted ${items.length} memories.`);
     } catch (err) {
       setNote(errText(err));
     } finally {
