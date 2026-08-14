@@ -512,7 +512,58 @@ print(f"  TRAINING START — {RUN_NAME}")
 print(f"  ~{len(dataset['train']) * EPOCHS // (BATCH_SIZE * GRAD_ACCUM)} optimizer steps")
 print(f"{'=' * 70}\n")
 
+# ---------------------------------------------------------------- progress
+# Kaggle shows no logs while a kernel runs and none at all if it is cancelled,
+# so a slow run is indistinguishable from a healthy one until the session cap
+# kills it. This prints a rate and a projection at every logging_steps, and
+# mirrors it to /kaggle/working — committed output survives cancellation.
+import time as _time  # noqa: E402
+
+from transformers import TrainerCallback  # noqa: E402
+
+PROGRESS_FILE = "/kaggle/working/progress.txt"
+
+
+class RateReport(TrainerCallback):
+    def on_train_begin(self, args, state, control, **kwargs):
+        self.t0 = _time.time()
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not state.global_step:
+            return
+        elapsed = _time.time() - self.t0
+        per_step = elapsed / state.global_step
+        total = state.max_steps or 0
+        remaining = (total - state.global_step) * per_step if total else 0
+        line = (
+            f"step {state.global_step}/{total or '?'}  "
+            f"{per_step:.1f}s/step  elapsed {elapsed / 60:.1f}min  "
+            f"eta {remaining / 3600:.2f}h  loss={(logs or {}).get('loss', '?')}"
+        )
+        print("  \u23f1  " + line, flush=True)
+        try:
+            with open(PROGRESS_FILE, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except Exception:
+            pass
+
+
+trainer.add_callback(RateReport())
+
+# EKA_SMOKE=1 caps the run at a dozen steps: ~15 minutes to learn the real
+# s/step before betting a whole session on the estimate. It deliberately does
+# NOT push an adapter — a 12-step LoRA is not a model.
+if os.environ.get("EKA_SMOKE") == "1":
+    trainer.args.max_steps = 12
+    print("\n*** SMOKE TEST: capped at 12 steps, no adapter will be pushed ***\n")
+
 trainer.train(resume_from_checkpoint=RESUME_FROM)
+
+if os.environ.get("EKA_SMOKE") == "1":
+    raise SystemExit(
+        "Smoke test complete — read the s/step above and multiply. "
+        "Unset EKA_SMOKE for a real run."
+    )
 
 metrics = trainer.evaluate()
 print(f"\n✓ Final eval loss: {metrics.get('eval_loss'):.4f}")
