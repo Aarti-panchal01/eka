@@ -23,6 +23,7 @@ export default function Chat({ mode, language, health, newChatToken }) {
   const [emotion, setEmotion] = useState(false);
   const [speak, setSpeak] = useState(false);
   const [listening, setListening] = useState(false);
+  const [speakingId, setSpeakingId] = useState(null);
 
   const recognition = useRef(null);
   const playback = useRef(null);
@@ -138,6 +139,48 @@ export default function Chat({ mode, language, health, newChatToken }) {
       }
     },
     [language]
+  );
+
+  /**
+   * Speak one specific reply, on demand. Never autoplay.
+   *
+   * Uses ekaAPI.playAudio rather than a raw `new Audio(URL.createObjectURL(...))`
+   * because it revokes the object URL on end, error AND stop — the hand-rolled
+   * version leaks a blob per playback, which adds up over a long conversation.
+   * The same ref backs the auto-narrate path, so tapping a message also stops
+   * whatever was already speaking.
+   */
+  const speakMessage = useCallback(
+    async (id, text, forMode) => {
+      playback.current?.stop?.();
+      playback.current = null;
+
+      if (speakingId === id) {
+        setSpeakingId(null); // second tap on the same message = stop
+        return;
+      }
+      if (!text?.trim()) return;
+
+      setSpeakingId(id);
+      try {
+        const blob = await ekaAPI.synthesize(text, forMode, language);
+        console.info(
+          `[eka voice] ${forMode}/${language} — ${blob.size} bytes, playing`
+        );
+        const handle = ekaAPI.playAudio(blob);
+        playback.current = handle;
+        await handle;
+        console.info("[eka voice] playback finished");
+      } catch (err) {
+        console.warn("[eka voice] failed:", err);
+        setToast("Voice unavailable for that message.");
+      } finally {
+        // Only clear if this playback is still the current one — a rapid
+        // second tap must not wipe the newer message's playing state.
+        setSpeakingId((current) => (current === id ? null : current));
+      }
+    },
+    [language, speakingId]
   );
 
   const send = useCallback(
@@ -299,7 +342,12 @@ export default function Chat({ mode, language, health, newChatToken }) {
           )}
 
           {messages.map((m, i) => (
-            <Bubble key={i} msg={m} />
+            <Bubble
+              key={i}
+              msg={m}
+              speaking={speakingId === i}
+              onSpeak={() => speakMessage(i, m.content, m.mode || mode)}
+            />
           ))}
 
           {sending && (
@@ -371,7 +419,7 @@ export default function Chat({ mode, language, health, newChatToken }) {
   );
 }
 
-function Bubble({ msg }) {
+function Bubble({ msg, speaking, onSpeak }) {
   if (msg.role === "system") {
     return (
       <div className="animate-rise self-center rounded-lg bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
@@ -395,6 +443,15 @@ function Bubble({ msg }) {
         <p className="whitespace-pre-wrap">{msg.content}</p>
       </div>
       <div className="mt-1.5 flex items-center gap-2 pl-1 text-[11px]">
+        <button
+          onClick={onSpeak}
+          title={speaking ? "Stop" : "Read this aloud"}
+          className={`transition-all duration-200 hover:brightness-125 ${
+            speaking ? "text-red-400" : persona.accent
+          }`}
+        >
+          {speaking ? "⏹" : "🔊"}
+        </button>
         <span className={persona.accent}>{persona.id} mode</span>
         {msg.memories > 0 && (
           <span className="text-neutral-600">· {msg.memories} memories used</span>

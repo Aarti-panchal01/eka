@@ -152,7 +152,14 @@ class Settings(BaseSettings):
     RANKER_MODEL_PATH: str = str(ML_DIR / "models" / "ranker" / "eka_ranker.txt")
 
     # ------------------------------------------------------------- tuning
-    AUTO_MEMORY_MIN_CHARS: int = 150
+    # 80, down from 150. At 150 almost nothing in a real conversation
+    # qualified — "my company is called Inverix and we sell to schools" is 60
+    # characters and is exactly the kind of fact worth keeping, so the
+    # Knowledge page stayed empty while chat history filled up. The
+    # first-person and question-ratio checks in _worth_remembering still do the
+    # real filtering; this length floor is only meant to skip one-liners like
+    # "ok" and "thanks". Raise it again if the store gets noisy.
+    AUTO_MEMORY_MIN_CHARS: int = 80
     MAX_TAGS: int = 5
     EMBED_CACHE_SIZE: int = 500
     HF_COLD_START_RETRIES: int = 3
