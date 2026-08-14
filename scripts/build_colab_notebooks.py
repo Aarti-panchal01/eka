@@ -74,6 +74,14 @@ INSTALLS = {
 
 PERSONAS = ("founder", "chanakya", "gita", "reflection")
 
+# Colab-only: one notebook that runs all four adapters back to back. It has
+# no Kaggle counterpart, so it is added here instead of to the shared TARGETS.
+TARGETS["all_loras"] = (
+    "train_all_loras_colab.py",
+    "eka_all_loras_colab.ipynb",
+    "all four persona adapters, sequentially",
+)
+
 
 def install_key(mode: str) -> str:
     return mode if mode in ("embeddings", "classifiers") else "persona"
