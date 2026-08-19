@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     # Chat/inference model (fast + free). Used for every user-facing generation
     # while LLM_MODE=groq.
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
     # Bigger model used only by the offline data-generation scripts.
     # NOTE: llama-3.1-70b-versatile was decommissioned by Groq; 3.3 is the
     # current 70B. Override with GROQ_GEN_MODEL if Groq rotates models again.
