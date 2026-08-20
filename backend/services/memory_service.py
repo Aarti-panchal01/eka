@@ -527,8 +527,12 @@ class MemoryService:
         goal = await db.get(GoalTracking, str(goal_id))
         if not goal:
             return None
+        # `updates` only contains fields the caller explicitly set (the PUT
+        # route builds it with exclude_unset=True), so an explicit None here
+        # means "clear this field" (e.g. remove a due date) rather than
+        # "leave untouched" — unlike before, we must not skip None values.
         for field, value in updates.items():
-            if value is not None and hasattr(goal, field):
+            if hasattr(goal, field):
                 setattr(goal, field, value)
         # Hitting the target completes the goal without a separate call.
         if goal.target_value and goal.current_value >= goal.target_value:
