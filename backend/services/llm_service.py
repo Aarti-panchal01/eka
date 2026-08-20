@@ -39,6 +39,14 @@ class LLMService:
         self._last_error: Optional[str] = None
         # Don't re-probe a dead Ollama on every message.
         self._probe_ttl = 60.0
+        # Groq health specifically: a real completions call, not a cheap ping.
+        # /health gets hit constantly (Render's platform health check, the
+        # frontend's status dot, the KEEP_ALIVE self-ping), so without this
+        # cache every one of those burns a real Groq request and the free
+        # tier's daily quota gets eaten by health checks alone, unrelated to
+        # any actual user message.
+        self._groq_ok: Optional[bool] = None
+        self._groq_checked_at: float = 0.0
 
     # ---------------------------------------------------------- public API
     async def generate(
@@ -278,13 +286,19 @@ class LLMService:
 
         groq_ok = False
         if settings.GROQ_API_KEY:
-            try:
-                await asyncio.wait_for(
-                    self._groq("Say OK.", None, 0.0, 5), timeout=15.0
-                )
-                groq_ok = True
-            except Exception as exc:
-                self._last_error = f"groq: {exc}"
+            now = time.monotonic()
+            if self._groq_ok is not None and now - self._groq_checked_at < self._probe_ttl:
+                groq_ok = self._groq_ok
+            else:
+                self._groq_checked_at = now
+                try:
+                    await asyncio.wait_for(
+                        self._groq("Say OK.", None, 0.0, 5), timeout=15.0
+                    )
+                    groq_ok = True
+                except Exception as exc:
+                    self._last_error = f"groq: {exc}"
+                self._groq_ok = groq_ok
 
         hf_space_ok = False
         if settings.HF_SPACE_URL:
