@@ -30,7 +30,7 @@ help: ## Show this help (this list is generated from the comments below)
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Override defaults: make serve-local PY=python3 / make status BASE=https://eka.onrender.com"
+	@echo "Override defaults: make serve-local PY=python3 / make status BASE=https://eka-backend-doau.onrender.com"
 
 # ============================================================== setup
 install: ## Install backend runtime deps (pip install -r backend/requirements.txt)

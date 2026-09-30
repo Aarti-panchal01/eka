@@ -59,6 +59,9 @@ KEEP_ALIVE_INTERVAL = int(os.environ.get("KEEP_ALIVE_INTERVAL", 600))  # 10 minu
 async def keep_alive() -> None:
     """Self-ping so Render's free tier doesn't spin the instance down.
 
+    Pings "/" (static JSON) rather than "/health": /health makes a real Groq call
+    whenever its 60 s cache has expired, which it always has at a 10-minute gap.
+
     IMPORTANT CAVEAT: pinging 127.0.0.1 does NOT prevent Render from sleeping.
     Render decides based on *inbound external* traffic through its router; a
     loopback request never reaches it. So this task prefers the public URL,
@@ -72,11 +75,11 @@ async def keep_alive() -> None:
     """
     target = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     if target:
-        url = f"{target}/health"
+        url = f"{target}/"
         logger.info("keep_alive: pinging %s every %ds", url, KEEP_ALIVE_INTERVAL)
     else:
         port = os.environ.get("PORT", "8000")
-        url = f"http://127.0.0.1:{port}/health"
+        url = f"http://127.0.0.1:{port}/"
         logger.info(
             "keep_alive: RENDER_EXTERNAL_URL unset, falling back to %s "
             "(loopback — will NOT prevent a Render spin-down)", url

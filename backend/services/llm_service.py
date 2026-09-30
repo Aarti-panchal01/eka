@@ -47,6 +47,11 @@ class LLMService:
         # any actual user message.
         self._groq_ok: Optional[bool] = None
         self._groq_checked_at: float = 0.0
+        # 60 s was not enough: Render's platform health check hits /health
+        # every few seconds, so a 60 s cache still allowed ~1,440 real Groq
+        # calls a day and exhausted the 1,000/day free quota. 30 min caps
+        # health-check usage at 48 calls a day.
+        self._groq_probe_ttl = 1800.0
 
     # ---------------------------------------------------------- public API
     async def generate(
@@ -287,7 +292,7 @@ class LLMService:
         groq_ok = False
         if settings.GROQ_API_KEY:
             now = time.monotonic()
-            if self._groq_ok is not None and now - self._groq_checked_at < self._probe_ttl:
+            if self._groq_ok is not None and now - self._groq_checked_at < self._groq_probe_ttl:
                 groq_ok = self._groq_ok
             else:
                 self._groq_checked_at = now

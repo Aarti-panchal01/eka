@@ -104,7 +104,7 @@ You do not need to add the `+asyncpg` driver yourself — `backend/config.py`'s
 7. Verify from your own machine:
 
    ```bash
-   curl https://eka-backend.onrender.com/health
+   curl https://eka-backend-doau.onrender.com/health
    ```
 
    You want `"status":"ok"` with `"database":true`, `"qdrant":true`,
@@ -114,7 +114,7 @@ You do not need to add the `+asyncpg` driver yourself — `backend/config.py`'s
 8. Run the real suite against it:
 
    ```bash
-   EKA_BASE_URL=https://eka-backend.onrender.com python tests/test_e2e.py
+   EKA_BASE_URL=https://eka-backend-doau.onrender.com python tests/test_e2e.py
    ```
 
 ---
@@ -181,6 +181,6 @@ redeploys. Turn it off in Settings if you want manual control.
 
 - Frontend: point its `VITE_API_URL` (see `frontend/.env.example`) at the
   Render URL, then come back and set `CORS_ORIGINS` to that exact origin.
-- API docs: `https://eka-backend.onrender.com/docs`.
+- API docs: `https://eka-backend-doau.onrender.com/docs`.
 - Rotate `SECRET_KEY` and any key that has ever been pasted into a chat
   window, a screenshot, or a terminal you did not control.

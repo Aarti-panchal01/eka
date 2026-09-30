@@ -14,7 +14,7 @@ Prerequisites
 Usage
 -----
     python tests/test_e2e.py
-    EKA_BASE_URL=https://eka.onrender.com python tests/test_e2e.py
+    EKA_BASE_URL=https://eka-backend-doau.onrender.com python tests/test_e2e.py
 
 This is a standalone script, NOT a pytest suite — no pytest import, no
 fixtures, no test discovery magic. It runs 7 tests in order against
