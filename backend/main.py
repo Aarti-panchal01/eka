@@ -122,10 +122,14 @@ async def lifespan(app: FastAPI):
     if not settings.GROQ_API_KEY and settings.LLM_MODE == "groq":
         logger.error("LLM_MODE=groq but GROQ_API_KEY is empty — chat will not work.")
 
-    # Disabled by default locally — a self-ping every 10 min is only useful on
-    # a host that sleeps. Set KEEP_ALIVE=1 (render.yaml does) to enable.
+    # Off by default, including on Render. An always-on self-ping keeps the
+    # instance awake 24/7 (~744 h in a 31-day month), which alone uses up
+    # Render's 750 free hours shared across every free service. Eka is now kept
+    # awake only 8 am to midnight IST by .github/workflows/keep-awake.yml.
+    # KEEP_ALIVE / ENVIRONMENT=render no longer enable it; set
+    # SELF_PING_ALWAYS_ON=1 only if Eka moves to a paid, always-on plan.
     keep_alive_task = None
-    if os.environ.get("KEEP_ALIVE", "0") == "1" or settings.ENVIRONMENT == "render":
+    if os.environ.get("SELF_PING_ALWAYS_ON", "0") == "1":
         keep_alive_task = asyncio.create_task(keep_alive())
 
     logger.info("Eka ready -> http://localhost:8000/docs")

@@ -126,9 +126,10 @@ services:
       # ---------------------------------------------------------- runtime
       - key: PYTHON_VERSION
         value: 3.11.9
-      # backend/main.py starts the self-ping when KEEP_ALIVE=1 OR when
-      # ENVIRONMENT=render. Both are true here — the explicit flag is set so
-      # the behaviour does not silently depend on the ENVIRONMENT value.
+      # NOTE: backend/main.py no longer reads KEEP_ALIVE or ENVIRONMENT for the
+      # self-ping; it only starts when SELF_PING_ALWAYS_ON=1. Eka is kept awake
+      # 8 am to midnight IST by .github/workflows/keep-awake.yml instead, to stay
+      # inside Render's 750 free hours. The two keys below are now unused.
       # Read infra/setup_render.md before relying on this: a self-ping cannot
       # wake an already-suspended instance, only UptimeRobot can.
       - key: KEEP_ALIVE

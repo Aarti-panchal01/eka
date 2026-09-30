@@ -1,8 +1,10 @@
 name: Keep Eka backend awake
 
 # Render's free tier spins a web service down after 15 minutes without
-# traffic. This pings the backend every 14 minutes from GitHub's servers,
-# so it also wakes the service back up if it ever does spin down.
+# traffic. This pings the backend every 14 minutes, 8 am to midnight IST
+# only (02:30-18:30 UTC), so Eka sleeps overnight. That keeps it to about
+# 16-17 h a day (~520 h a month) and leaves room in Render's 750 free hours
+# for the other free services.
 #
 # It pings "/" (a static JSON reply, no Groq / database / Qdrant calls)
 # rather than "/health", which runs a real Groq completion whenever its
@@ -12,7 +14,12 @@ name: Keep Eka backend awake
 
 on:
   schedule:
-    - cron: "*/14 * * * *"
+    # GitHub cron is in UTC. IST = UTC + 5:30.
+    - cron: "30,44,58 2 * * *"    # 08:00, 08:14, 08:28 IST
+    - cron: "*/14 3-18 * * *"     # 08:30 IST to 00:26 IST
+    # Once a day: a real /health call, which runs a tiny SELECT 1 so the
+    # Supabase free project never looks inactive (it pauses after ~7 days).
+    - cron: "15 4 * * *"          # 09:45 IST
   workflow_dispatch: {}
 
 permissions: {}
@@ -23,6 +30,7 @@ concurrency:
 
 jobs:
   ping:
+    if: github.event.schedule != '15 4 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -34,3 +42,15 @@ jobs:
           echo "HTTP $code"
           # Fail only on server errors so a broken deploy shows up in the Actions tab.
           if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then exit 1; fi
+
+  daily-db-touch:
+    # /health runs SELECT 1 against Supabase. At most one Groq call, since the
+    # Groq check is cached for 30 minutes. No secrets.
+    if: github.event.schedule == '15 4 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call /health once
+        run: |
+          body=$(curl -s --max-time 90 --retry 2 --retry-delay 10 https://eka-backend-doau.onrender.com/health)
+          echo "$body" | python3 -c "import sys,json;d=json.load(sys.stdin);print('status',d.get('status'),'database',d.get('database'));sys.exit(0 if d.get('database') else 1)"
