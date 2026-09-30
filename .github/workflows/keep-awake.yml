@@ -1,0 +1,36 @@
+name: Keep Eka backend awake
+
+# Render's free tier spins a web service down after 15 minutes without
+# traffic. This pings the backend every 14 minutes from GitHub's servers,
+# so it also wakes the service back up if it ever does spin down.
+#
+# It pings "/" (a static JSON reply, no Groq / database / Qdrant calls)
+# rather than "/health", which runs a real Groq completion whenever its
+# 60-second cache has expired, and it always will have at a 14-minute gap.
+#
+# No secrets are used or needed.
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: keep-awake
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping backend
+        run: |
+          # A cold start on Render can take up to about a minute, so allow 90s.
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 --retry 2 --retry-delay 10 \
+            https://eka-backend-doau.onrender.com/)
+          echo "HTTP $code"
+          # Fail only on server errors so a broken deploy shows up in the Actions tab.
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then exit 1; fi
