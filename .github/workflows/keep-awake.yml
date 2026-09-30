@@ -6,7 +6,7 @@ name: Keep Eka backend awake
 #
 # It pings "/" (a static JSON reply, no Groq / database / Qdrant calls)
 # rather than "/health", which runs a real Groq completion whenever its
-# 60-second cache has expired, and it always will have at a 14-minute gap.
+# 30-minute Groq cache has expired.
 #
 # No secrets are used or needed.
 
