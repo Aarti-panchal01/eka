@@ -44,8 +44,11 @@ jobs:
           if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then exit 1; fi
 
   daily-db-touch:
-    # /health runs SELECT 1 against Supabase. At most one Groq call, since the
-    # Groq check is cached for 30 minutes. No secrets.
+    # /health runs SELECT 1 against Supabase and two real Qdrant requests
+    # (list collections, count points), so both free tiers see daily
+    # activity and neither gets paused or suspended. At most one Groq call,
+    # since the Groq check is cached for 30 minutes. No secrets.
+    # Fails (and GitHub emails you) if the database or Qdrant is down.
     if: github.event.schedule == '15 4 * * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -53,4 +56,4 @@ jobs:
       - name: Call /health once
         run: |
           body=$(curl -s --max-time 90 --retry 2 --retry-delay 10 https://eka-backend-doau.onrender.com/health)
-          echo "$body" | python3 -c "import sys,json;d=json.load(sys.stdin);print('status',d.get('status'),'database',d.get('database'));sys.exit(0 if d.get('database') else 1)"
+          echo "$body" | python3 -c "import sys,json;d=json.load(sys.stdin);v=d.get('details',{}).get('vectors',{});print('status',d.get('status'),'database',d.get('database'),'qdrant',d.get('qdrant'),'points',v.get('points'));sys.exit(0 if d.get('database') and d.get('qdrant') else 1)"
